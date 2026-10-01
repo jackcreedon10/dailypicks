@@ -217,12 +217,6 @@ export function Picker({
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && results[0] && add(results[0].symbol)}
-                // On phones, lift the search box to the top so results aren't hidden behind the keyboard.
-                onFocus={(e) => {
-                  const el = e.currentTarget;
-                  if (window.matchMedia("(max-width: 640px)").matches)
-                    setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
-                }}
                 placeholder="Search any US stock: NVDA, Tesla..."
                 type="search"
                 enterKeyHint="search"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, clock, dayLabel, dot, etClock, loadIdentity, ordinal, pct, percentile, pts, saveIdentity, shareText, tone, type Identity } from "@/lib/client";
+import { api, clock, dayLabel, dot, etClock, loadIdentity, pct, percentile, pts, saveIdentity, shareText, tone, type Identity } from "@/lib/client";
 import { Distribution, Kicker, ScoreBox, StatsRow, StockBars, StockChips, percentileLabel, verdict } from "./Cards";
 import { Picker, SplitBar, STOCK_COLORS } from "./Picker";
 import { Portfolio, Standing } from "./Portfolio";
@@ -156,7 +156,12 @@ export function Game({ invite }: { invite?: Invite }) {
 
   function startPlaying() {
     setPlaying(true);
-    setTimeout(() => document.getElementById("play")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    // Only scroll when the pick card is off-screen (e.g. tapping "Make your picks" on a friend's card);
+    // otherwise leave the page where it is.
+    setTimeout(() => {
+      const el = document.getElementById("play");
+      if (el && el.getBoundingClientRect().top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   if (!state) {
@@ -186,15 +191,18 @@ export function Game({ invite }: { invite?: Invite }) {
 
   const header = focus ? `#${focus.number} · ${dayLabel(focus.date)}` : "";
 
-  // Share texts: short, Wordle style. The link is appended by the share sheet.
-  const tag = (g: { number: number; date: string }) => `Pick 3 #${g.number} · ${shortDate(g.date)}`;
-  const scoreShare = (e: Entry, g: GameInfo, final: boolean) => {
-    const p = percentile(e.beaten, e.fieldSize);
-    const streak = stats && stats.streak > 1 ? ` · 🔥${stats.streak}` : "";
-    return `${tag(g)}${final ? "" : " (live)"}\n${pts(e.ret)}${p != null ? ` · ${ordinal(p)} percentile` : ""}${streak}\n${e.legs.map((l) => dot(l.ret)).join("")}`;
-  };
+  // Share text:
+  //   Pick 3 - Oct 2, 2026
+  //   📈 MSFT: $50,000
+  // Before the open it lists what's invested in each stock; once prices move, what each is worth now
+  // (📉 for stocks that are down). The link is appended by the share sheet.
+  const shareDate = (date: string) =>
+    new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const dollars = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
+  const scoreShare = (e: Entry) =>
+    [`Pick 3 - ${shareDate(e.date)}`, ...e.legs.map((l) => `${l.ret < 0 ? "📉" : "📈"} ${l.symbol}: ${dollars(l.alloc * (1 + l.ret))}`)].join("\n");
   const picksShare = (g: GameInfo, symbols: string[], allocs: number[]) =>
-    `${tag(g)}\n🔒 ${symbols.map((s, i) => `${s} ${Math.round(allocs[i] / 1000)}%`).join(" · ")}\nThink you can beat me?`;
+    [`Pick 3 - ${shareDate(g.date)}`, ...symbols.map((sym, i) => `📈 ${sym}: ${dollars(allocs[i])}`)].join("\n");
 
   return (
     <Shell mock={state.mock} header={header}>
@@ -249,7 +257,7 @@ export function Game({ invite }: { invite?: Invite }) {
               ]}
             />
           </div>
-          <PrimaryButton onClick={() => share(scoreShare(lastEntry, last, lastEntry.status === "settled"))}>Share score</PrimaryButton>
+          <PrimaryButton onClick={() => share(scoreShare(lastEntry))}>Share score</PrimaryButton>
           {upcoming && (
             <p className="mt-3 text-center font-mono text-xs text-muted">
               Next round opens in <span className="text-fg tabular">{clock(Date.parse(upcoming.openAt) - now)}</span>
@@ -278,7 +286,7 @@ export function Game({ invite }: { invite?: Invite }) {
             <StockChips legs={liveEntry.legs} />
           </div>
           <Standing entry={liveEntry} />
-          <PrimaryButton onClick={() => share(scoreShare(liveEntry, live, false))}>Share score</PrimaryButton>
+          <PrimaryButton onClick={() => share(scoreShare(liveEntry))}>Share score</PrimaryButton>
         </Card>
       )}
 
