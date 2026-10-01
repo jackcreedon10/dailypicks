@@ -5,11 +5,18 @@ import { Chart } from "./Chart";
 import { SplitBar, STOCK_COLORS } from "./Picker";
 import type { Entry, GameInfo } from "./types";
 
-export function Portfolio({ entry, game }: { entry: Entry; game: GameInfo }) {
+/** Portfolio breakdown. With `details`, only the chart and per-stock rows (the score card sits above). */
+export function Portfolio({ entry, game, details = false }: { entry: Entry; game: GameInfo; details?: boolean }) {
   const settled = entry.status === "settled";
   return (
     <div>
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+      {details && (
+        <div className="mb-1 flex items-baseline justify-between">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Portfolio</span>
+          <span className="font-mono text-sm font-semibold tabular">{money(entry.value)}</span>
+        </div>
+      )}
+      {!details && <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
         <div>
           <div className="text-xs uppercase tracking-wide text-muted">{settled ? "Final value" : "Portfolio value"}</div>
           <div className="text-2xl font-bold tabular sm:text-3xl">{money(entry.value)}</div>
@@ -17,10 +24,10 @@ export function Portfolio({ entry, game }: { entry: Entry; game: GameInfo }) {
         <div className="ml-auto text-right">
           <div className={`whitespace-nowrap text-2xl font-bold tabular ${tone(entry.ret)}`}>{pts(entry.ret)}</div>
         </div>
-      </div>
+      </div>}
 
 
-      <Standing entry={entry} />
+      {!details && <Standing entry={entry} />}
 
       <div className="mt-4">
         <Chart series={entry.series} start={entry.enteredAt ?? game.openAt} end={game.closeAt} baseline={100_000} />
@@ -51,7 +58,7 @@ export function Portfolio({ entry, game }: { entry: Entry; game: GameInfo }) {
 }
 
 /** Where you stand against everyone who locked in picks today. Refreshes every 30s while live. */
-function Standing({ entry }: { entry: Entry }) {
+export function Standing({ entry }: { entry: Entry }) {
   const settled = entry.status === "settled";
   const p = percentile(entry.beaten, entry.fieldSize);
   const others = (entry.fieldSize ?? 1) - 1;

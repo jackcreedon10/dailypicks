@@ -32,6 +32,8 @@ export type State = {
   lastEntry: Entry | null;
   upcomingPicks: { symbols: string[]; allocs: number[] } | null;
   upcomingCount: number;
+  stats: { played: number; streak: number } | null;
+  dist: { label: string; min: number | null; max: number | null; count: number }[] | null;
   groups: { code: string; name: string }[];
 };
 

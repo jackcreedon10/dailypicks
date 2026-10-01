@@ -61,6 +61,28 @@ function LockToggle({ locked, symbol, onClick }: { locked: boolean; symbol: stri
   );
 }
 
+const PICK_QUIPS = [
+  "{s}. Bold.",
+  "{s}? Interesting choice.",
+  "{s}. The people's champion.",
+  "{s}. We'll see about that.",
+  "{s}. Fortune favors the brave.",
+  "{s}. Trust the process.",
+];
+
+function pickQuip(symbol: string): string {
+  const seed = [...symbol].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return PICK_QUIPS[seed % PICK_QUIPS.length].replace("{s}", symbol);
+}
+
+function splitQuip(allocs: number[]): string {
+  const top = Math.max(...allocs);
+  if (top >= 90_000) return "All-in on one stock? Respect.";
+  if (top >= 60_000) return "Conviction. We like it.";
+  if (top <= 34_000) return "Diversified. Very sensible. Very boring.";
+  return "A little spice, a little safety.";
+}
+
 export function SplitBar({ symbols, allocs, className = "h-3" }: { symbols: string[]; allocs: number[]; className?: string }) {
   return (
     <div className={`flex w-full overflow-hidden rounded-full ${className}`} aria-hidden="true">
@@ -108,6 +130,7 @@ export function Picker({
   const [results, setResults] = useState<Result[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quip, setQuip] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -126,6 +149,7 @@ export function Picker({
   function add(sym: string) {
     if (picks.includes(sym) || picks.length >= 3) return;
     setPicks([...picks, sym]);
+    setQuip(pickQuip(sym));
     setQ("");
     setResults([]);
     input.current?.focus();
@@ -161,6 +185,9 @@ export function Picker({
 
       {step === 0 && (
         <>
+          <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+            {picks.length < 3 ? `Stock ${picks.length + 1} of 3` : "All 3 picked"}
+          </p>
           <div className="grid grid-cols-3 gap-2">
             {[0, 1, 2].map((i) => (
               <div
@@ -180,6 +207,8 @@ export function Picker({
               </div>
             ))}
           </div>
+
+          {quip && picks.length > 0 && <p className="mt-2 font-mono text-sm text-muted">{quip}</p>}
 
           {picks.length < 3 && (
             <div className="relative mt-3">
@@ -257,6 +286,7 @@ export function Picker({
           </div>
 
           <SplitBar symbols={picks} allocs={allocs} className="mt-3 h-4" />
+          <p className="mt-2 font-mono text-sm text-muted">{splitQuip(allocs)}</p>
 
           <ul className="mt-4 space-y-4">
             {picks.map((s, i) => (

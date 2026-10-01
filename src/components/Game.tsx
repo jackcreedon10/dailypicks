@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, dayLabel, etClock, loadIdentity, money, ordinal, pct, percentile, pts, saveIdentity, shareText, timeLeft, tone, type Identity } from "@/lib/client";
+import { api, clock, dayLabel, dot, etClock, loadIdentity, ordinal, pct, percentile, pts, saveIdentity, shareText, tone, type Identity } from "@/lib/client";
+import { Distribution, Kicker, ScoreBox, StatsRow, StockBars, StockChips, percentileLabel, verdict } from "./Cards";
 import { Picker, SplitBar, STOCK_COLORS } from "./Picker";
-import { Portfolio } from "./Portfolio";
-import type { SharedPicks, State } from "./types";
+import { Portfolio, Standing } from "./Portfolio";
+import type { Entry, GameInfo, SharedPicks, State } from "./types";
 
 const POLL_MS = 30_000;
 
@@ -15,18 +16,17 @@ export type Invite = { code: string; name: string; createdBy: string | null; sha
 
 function Card({ children, className = "", id }: { children: React.ReactNode; className?: string; id?: string }) {
   return (
-    <section id={id} className={`rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>
+    <section id={id} className={`scroll-mt-4 rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>
       {children}
     </section>
   );
 }
 
-const k = (x: number) => `$${Math.round(x / 1000)}k`;
+const shortDate = (date: string) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
-/** "NVDA $50k, TSLA $25k, AMZN $25k" */
-const splitText = (symbols: string[], allocs: number[]) => symbols.map((s, i) => `${s} ${k(allocs[i])}`).join(", ");
-
-function LockedPicks({ symbols, allocs }: { symbols: string[]; allocs: number[] }) {
+/** Colored tiles for locked-in picks: symbol and dollars. */
+function PickTiles({ symbols, allocs }: { symbols: string[]; allocs: number[] }) {
   return (
     <div>
       <SplitBar symbols={symbols} allocs={allocs} className="h-3" />
@@ -37,7 +37,7 @@ function LockedPicks({ symbols, allocs }: { symbols: string[]; allocs: number[] 
               <span className="h-2.5 w-2.5 rounded-full" style={{ background: STOCK_COLORS[i] }} />
               {s}
             </div>
-            <div className="text-sm text-muted tabular">{k(allocs[i])}</div>
+            <div className="font-mono text-sm text-muted tabular">${Math.round(allocs[i] / 1000)}k</div>
           </li>
         ))}
       </ul>
@@ -45,12 +45,16 @@ function LockedPicks({ symbols, allocs }: { symbols: string[]; allocs: number[] 
   );
 }
 
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-      <rect x="5" y="11" width="14" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
+function PrimaryButton({ children, onClick, href }: { children: React.ReactNode; onClick?: () => void; href?: string }) {
+  const cls = "mt-4 block w-full rounded-full bg-accent py-3.5 text-center font-semibold text-accent-fg active:scale-[0.99]";
+  return href ? (
+    <a href={href} onClick={onClick} className={cls}>
+      {children}
+    </a>
+  ) : (
+    <button onClick={onClick} className={cls}>
+      {children}
+    </button>
   );
 }
 
@@ -58,7 +62,7 @@ export function Game({ invite }: { invite?: Invite }) {
   const [me, setMe] = useState<Identity | null>(null);
   const [state, setState] = useState<State | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [pickingNext, setPickingNext] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const meRef = useRef<Identity | null>(null);
@@ -85,12 +89,12 @@ export function Game({ invite }: { invite?: Invite }) {
     setMe(id);
     refresh();
     const poll = setInterval(() => document.visibilityState === "visible" && refresh(), POLL_MS);
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const tick = setInterval(() => setNow(Date.now()), 1000);
     const onVis = () => document.visibilityState === "visible" && refresh();
     document.addEventListener("visibilitychange", onVis);
     return () => {
       clearInterval(poll);
-      clearInterval(clock);
+      clearInterval(tick);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [refresh]);
@@ -129,8 +133,9 @@ export function Game({ invite }: { invite?: Invite }) {
     // Create the share link now: iOS only opens the share sheet if it's called straight from the tap,
     // with no network wait in between.
     else if (!state?.groups.length) await api("/api/groups", { method: "POST", body: {}, me: id }).catch(() => {});
-    setPickingNext(false);
+    setPlaying(false);
     await refresh();
+    window.scrollTo({ top: 0, behavior: "smooth" });
     flash(r.late ? "Locked in. Scoring from right now." : "Locked in. Good luck!");
   }
 
@@ -143,27 +148,15 @@ export function Game({ invite }: { invite?: Invite }) {
         refresh();
       }
       const r = await shareText(text, `${location.origin}/g/${code}?p=${me.id}`);
-      if (r === "copied") flash("Link copied. Paste it in the group chat.");
+      if (r === "copied") flash("Copied. Paste it in the group chat.");
     } catch (e) {
       flash((e as Error).message);
     }
   }
 
-  // A plain render helper, not a component: defining a component inside Game would remount
-  // the button on every clock tick and swallow taps.
-  function shareButton(text: string, primary = false) {
-    return (
-      <button
-        onClick={() => share(text)}
-        className={
-          primary
-            ? "mt-3 w-full rounded-xl bg-accent py-3 font-semibold text-accent-fg"
-            : "rounded-full border border-line px-3 py-1.5 text-sm font-medium"
-        }
-      >
-        Share picks
-      </button>
-    );
+  function startPlaying() {
+    setPlaying(true);
+    setTimeout(() => document.getElementById("play")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   if (!state) {
@@ -176,171 +169,214 @@ export function Game({ invite }: { invite?: Invite }) {
     );
   }
 
-  const { live, upcoming, last, liveEntry, lastEntry, upcomingPicks } = state;
-  const number = live?.number ?? upcoming?.number;
+  const { live, upcoming, last, liveEntry, lastEntry, upcomingPicks, stats, dist } = state;
+  const focus = live ?? upcoming;
   const todayEt = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const upcomingIsNextDay = !!upcoming && upcoming.date !== todayEt;
-  const upcomingDay = upcoming ? (upcomingIsNextDay ? dayLabel(upcoming.date) : "today") : "";
   const sharer = invite?.sharer && invite.sharer.id !== me?.id && invite.sharer.symbols.length ? invite.sharer : null;
-  const needsPicks = (live && !liveEntry) || (!live && upcoming && !upcomingPicks);
+
+  // Which round can be played right now: today's if the market is open and you haven't joined,
+  // otherwise the next one if you haven't locked in for it yet.
+  const joinLive = !!live && !liveEntry;
+  const playable: GameInfo | null = joinLive ? live : upcoming && !upcomingPicks ? upcoming : null;
+  const playableDay = playable ? (playable.date === todayEt ? "today's" : `${dayLabel(playable.date).split(",")[0]}'s`) : "";
+
+  const header = focus ? `#${focus.number} · ${dayLabel(focus.date)}` : "";
+
+  // Share texts: short, Wordle style. The link is appended by the share sheet.
+  const tag = (g: { number: number; date: string }) => `Pick 3 #${g.number} · ${shortDate(g.date)}`;
+  const scoreShare = (e: Entry, g: GameInfo, final: boolean) => {
+    const p = percentile(e.beaten, e.fieldSize);
+    const streak = stats && stats.streak > 1 ? ` · 🔥${stats.streak}` : "";
+    return `${tag(g)}${final ? "" : " (live)"}\n${pts(e.ret)}${p != null ? ` · ${ordinal(p)} percentile` : ""}${streak}\n${e.legs.map((l) => dot(l.ret)).join("")}`;
+  };
+  const picksShare = (g: GameInfo, symbols: string[], allocs: number[]) =>
+    `${tag(g)}\n🔒 ${symbols.map((s, i) => `${s} ${Math.round(allocs[i] / 1000)}%`).join(" · ")}\nThink you can beat me?`;
 
   return (
-    <Shell mock={state.mock}>
-      {/* Status bar */}
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-muted">{number ? `Day #${number}` : ""}</span>
-        {live ? (
-          <span className="flex items-center gap-1.5 font-medium">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-up" />
-            Market open, closes in {timeLeft(Date.parse(live.closeAt) - now)}
-          </span>
-        ) : upcoming ? (
-          <span className="font-medium">
-            Market opens in <span className="tabular">{timeLeft(Date.parse(upcoming.openAt) - now)}</span>
-          </span>
-        ) : null}
-      </div>
-
-      {/* What a friend sees when they open a shared link */}
+    <Shell mock={state.mock} header={header}>
+      {/* A friend's shared picks */}
       {sharer && (
         <Card className="border-accent">
-          <p className="font-semibold">
-            Your friend&apos;s picks{sharer.date ? ` for ${dayLabel(sharer.date)}` : ""}
+          <Kicker>You&apos;ve been challenged</Kicker>
+          <p className="mt-1 text-lg font-semibold">
+            Beat your friend&apos;s picks{sharer.date ? ` for ${dayLabel(sharer.date)}` : ""}
           </p>
           {sharer.ret != null && (
             <p className="text-sm text-muted">
-              {sharer.status === "settled" ? "Finished at " : "Currently "}
-              <span className={`font-semibold ${tone(sharer.ret)}`}>{pts(sharer.ret)}</span>
+              {sharer.status === "settled" ? "They finished at " : "They're at "}
+              <span className={`font-mono font-semibold ${tone(sharer.ret)}`}>{pts(sharer.ret)}</span>
             </p>
           )}
           <div className="mt-3">
-            <LockedPicks symbols={sharer.symbols} allocs={sharer.allocs} />
+            <PickTiles symbols={sharer.symbols} allocs={sharer.allocs} />
           </div>
           {sharer.legs && (
-            <p className="mt-2 text-xs text-muted tabular">
-              {sharer.legs.map((l) => `${l.symbol} ${pct(l.ret)}`).join("   ")}
+            <p className="mt-2 font-mono text-xs text-muted tabular">
+              {sharer.legs.map((l) => `${dot(l.ret)} ${l.symbol} ${pct(l.ret)}`).join("   ")}
             </p>
           )}
-          {needsPicks && (
-            <a href="#picks" className="mt-3 block w-full rounded-xl bg-accent py-3 text-center font-semibold text-accent-fg">
-              Make my picks
-            </a>
-          )}
-        </Card>
-      )}
-      {invite && !sharer && !state.groups.some((g) => g.code === invite.code) && (
-        <Card className="border-accent">
-          <p className="font-semibold">You&apos;ve been invited to play Pick 3</p>
-          <p className="mt-1 text-sm text-muted">Pick 3 stocks, split $100,000 between them, and see who wins at the close.</p>
+          {playable && !playing && <PrimaryButton onClick={startPlaying}>Make your picks →</PrimaryButton>}
         </Card>
       )}
 
-      {/* Live game */}
-      {live && liveEntry && (
-        <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">Today</h2>
-            {shareButton(`My Pick 3 today: ${splitText(liveEntry.symbols, liveEntry.allocs)}. I'm at ${pts(liveEntry.ret)}${percentile(liveEntry.beaten, liveEntry.fieldSize) != null ? ` (${ordinal(percentile(liveEntry.beaten, liveEntry.fieldSize)!)} percentile)` : ""} as of ${etClock(new Date().toISOString())} ET. Make your picks and try to beat me:`)}
-          </div>
-          <Portfolio entry={liveEntry} game={live} />
-        </Card>
-      )}
-
-      {live && !liveEntry && (
-        <Card id="picks">
-          <h2 className="text-lg font-semibold">The market is open. Jump in.</h2>
-          <p className="mb-4 mt-1 text-sm text-muted">
-            Pick 3 stocks and split $100,000 between them. You&apos;re scored from right now until the {etClock(live.closeAt)} ET close.
-          </p>
-          <Picker
-            submitLabel="Lock in my picks"
-            lockNote="Once you lock in, your picks and split can't be changed today."
-            onSubmit={submitPicks}
-          />
-        </Card>
-      )}
-
-      {/* Upcoming picks */}
-      {upcoming && (!live || liveEntry) && (
-        <Card id={!live ? "picks" : undefined}>
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-semibold">{upcomingIsNextDay ? `Picks for ${upcomingDay}` : "Today's picks"}</h2>
-            {upcomingPicks && (
-              <span className="flex items-center gap-1 text-xs font-medium text-muted">
-                <LockIcon /> Locked in
-              </span>
-            )}
-          </div>
-
-          {upcomingPicks ? (
-            <>
-              <div className="mt-3">
-                <LockedPicks symbols={upcomingPicks.symbols} allocs={upcomingPicks.allocs} />
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                Scoring starts at the {etClock(upcoming.openAt)} ET opening bell{upcomingIsNextDay ? ` on ${upcomingDay}` : ""}. Your
-                percentile against everyone who played appears once the market opens.
-              </p>
-              {state.upcomingCount > 0 && (
-                <p className="mt-1 text-xs font-medium tabular">
-                  {(LOCKED_IN_BASELINE + state.upcomingCount - 1).toLocaleString()} other players have locked in so far.
-                </p>
-              )}
-              {shareButton(`My Pick 3 for ${dayLabel(upcoming.date)}: ${splitText(upcomingPicks.symbols, upcomingPicks.allocs)}. Make your picks and try to beat me:`, true)}
-            </>
-          ) : live && !pickingNext ? (
-            <button onClick={() => setPickingNext(true)} className="mt-3 w-full rounded-xl border border-dashed border-line py-3 text-sm text-muted">
-              Make your picks for {upcomingDay}
-            </button>
-          ) : (
-            <div className="mt-3">
-              {!live && (
-                <p className="mb-3 text-sm text-muted">
-                  Pick any 3 US stocks and split $100,000 between them. Scoring starts at the {etClock(upcoming.openAt)} ET opening bell.
-                </p>
-              )}
-              <Picker
-                submitLabel="Lock in my picks"
-                lockNote={`Once you lock in, your picks and split can't be changed for ${upcomingDay}.`}
-                onSubmit={submitPicks}
-                onCancel={pickingNext ? () => setPickingNext(false) : undefined}
-              />
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Last result */}
+      {/* Results card: the payoff after the close */}
       {!live && last && lastEntry && (
         <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-semibold">
-              {lastEntry.status === "settled" ? "Final" : "Settling"}: {dayLabel(lastEntry.date)}
-            </h2>
-            {shareButton(`My Pick 3 for ${dayLabel(lastEntry.date)}: ${splitText(lastEntry.symbols, lastEntry.allocs)}. Finished at ${pts(lastEntry.ret)}${percentile(lastEntry.beaten, lastEntry.fieldSize) != null ? `, ${ordinal(percentile(lastEntry.beaten, lastEntry.fieldSize)!)} percentile` : ""}. Make your picks and try to beat me:`)}
+          <Kicker className="text-center">
+            {shortDate(lastEntry.date)}
+            {stats && stats.streak > 0 ? ` · ${stats.streak} day streak` : ""}
+            {lastEntry.status !== "settled" ? " · settling" : ""}
+          </Kicker>
+          <div className="mt-2 text-center">
+            <div className={`font-mono text-5xl font-bold tabular ${tone(lastEntry.ret)}`}>{pts(lastEntry.ret).replace(" pts", "")}</div>
+            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted">points</div>
+            <div className="mt-2 text-2xl tracking-widest">{lastEntry.legs.map((l) => dot(l.ret)).join("")}</div>
+            <p className="mt-1 font-mono text-sm text-muted">{verdict(percentile(lastEntry.beaten, lastEntry.fieldSize), lastEntry.ret)}</p>
           </div>
-          <Portfolio entry={lastEntry} game={last} />
+          <div className="mt-4">
+            <StockBars legs={lastEntry.legs} />
+          </div>
+          <div className="mt-4">
+            <StatsRow
+              items={[
+                { label: "Played", value: String(stats?.played ?? 1) },
+                { label: "Percentile", value: percentileLabel(percentile(lastEntry.beaten, lastEntry.fieldSize)) },
+                { label: "Streak", value: String(stats?.streak ?? 1) },
+              ]}
+            />
+          </div>
+          <PrimaryButton onClick={() => share(scoreShare(lastEntry, last, lastEntry.status === "settled"))}>Share score</PrimaryButton>
+          {upcoming && (
+            <p className="mt-3 text-center font-mono text-xs text-muted">
+              Next round opens in <span className="text-fg tabular">{clock(Date.parse(upcoming.openAt) - now)}</span>
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* Live card: during market hours */}
+      {live && liveEntry && (
+        <Card>
+          <div className="flex items-stretch gap-3">
+            <ScoreBox ret={liveEntry.ret} />
+            <div className="flex min-w-0 flex-1 flex-col justify-center">
+              <Kicker className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-up" /> Live · closes in{" "}
+                <span className="text-fg tabular">{clock(Date.parse(live.closeAt) - now)}</span>
+              </Kicker>
+              <p className="mt-1 font-semibold leading-snug">
+                {verdict(percentile(liveEntry.beaten, liveEntry.fieldSize), liveEntry.ret)}
+              </p>
+              <p className="mt-0.5 font-mono text-xs text-muted">Highest score at the {etClock(live.closeAt)} ET close wins the day.</p>
+            </div>
+          </div>
+          <div className="mt-4">
+            <StockChips legs={liveEntry.legs} />
+          </div>
+          <Standing entry={liveEntry} />
+          <PrimaryButton onClick={() => share(scoreShare(liveEntry, live, false))}>Share score</PrimaryButton>
+        </Card>
+      )}
+
+      {/* Locked-in card: waiting for the bell */}
+      {upcoming && upcomingPicks && (!live || liveEntry) && (
+        <Card>
+          <div className="flex items-baseline justify-between">
+            <Kicker>🔒 Locked in · {upcoming.date === todayEt ? "today" : dayLabel(upcoming.date)}</Kicker>
+          </div>
+          <div className="mt-3">
+            <PickTiles symbols={upcomingPicks.symbols} allocs={upcomingPicks.allocs} />
+          </div>
+          <div className="mt-4 text-center">
+            <Kicker>Market opens in</Kicker>
+            <div className="font-mono text-3xl font-bold tabular">{clock(Date.parse(upcoming.openAt) - now)}</div>
+            <p className="mt-1 font-mono text-xs text-muted tabular">
+              {(LOCKED_IN_BASELINE + state.upcomingCount - 1).toLocaleString()} other players locked in
+            </p>
+          </div>
+          <PrimaryButton onClick={() => share(picksShare(upcoming, upcomingPicks.symbols, upcomingPicks.allocs))}>Share picks</PrimaryButton>
+        </Card>
+      )}
+
+      {/* Play: the round you can enter now */}
+      {playable && (
+        <Card id="play">
+          {!playing ? (
+            <div className="py-4 text-center">
+              <h2 className="text-3xl font-bold tracking-tight">Pick 3</h2>
+              <div className="mt-3 space-y-0.5 font-mono text-sm text-muted">
+                <p>pick 3 stocks</p>
+                <p>split $100,000 between them</p>
+                <p>{joinLive ? `scored from now until the ${etClock(playable.closeAt)} close` : `scored from the ${etClock(playable.openAt)} bell to the close`}</p>
+              </div>
+              <p className="mt-3 text-sm">Finish the day higher than your friends.</p>
+              <PrimaryButton onClick={startPlaying}>{joinLive ? "Join today's round →" : `Play ${playableDay} round →`}</PrimaryButton>
+              {!joinLive && (
+                <p className="mt-3 font-mono text-xs text-muted">
+                  Picks lock at the bell · <span className="tabular">{clock(Date.parse(playable.openAt) - now)}</span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <Picker
+              submitLabel="Lock in my picks"
+              lockNote={
+                joinLive
+                  ? "Once you lock in, your picks can't be changed today. Scoring starts right away."
+                  : `Once you lock in, your picks can't be changed for ${dayLabel(playable.date)}.`
+              }
+              onSubmit={submitPicks}
+              onCancel={() => setPlaying(false)}
+            />
+          )}
+        </Card>
+      )}
+
+      {/* Where you landed + details, below the main cards */}
+      {(live ? liveEntry : !live && lastEntry) && dist && (
+        <Card>
+          <Kicker>Where you landed</Kicker>
+          <div className="mt-3">
+            <Distribution
+              dist={dist}
+              ret={(live ? liveEntry : lastEntry)!.ret}
+              total={(live ? liveEntry : lastEntry)!.fieldSize}
+            />
+          </div>
+        </Card>
+      )}
+      {live && liveEntry && (
+        <Card>
+          <Portfolio entry={liveEntry} game={live} details />
+        </Card>
+      )}
+      {!live && last && lastEntry && (
+        <Card>
+          <Portfolio entry={lastEntry} game={last} details />
         </Card>
       )}
 
       {toast && (
-        <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] text-center rounded-full bg-fg px-4 py-2 text-sm text-bg shadow-lg">{toast}</div>
+        <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-fg px-4 py-2 text-center text-sm text-bg shadow-lg">
+          {toast}
+        </div>
       )}
     </Shell>
   );
 }
 
-function Shell({ children, mock }: { children: React.ReactNode; mock?: boolean }) {
+function Shell({ children, mock, header }: { children: React.ReactNode; mock?: boolean; header?: string }) {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1.25rem,env(safe-area-inset-top))]">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight">Pick 3</h1>
-        {mock && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">Demo prices</span>}
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))]">
+      <header className="flex items-center justify-between rounded-xl border border-line bg-card px-3 py-2">
+        <h1 className="font-mono text-base font-bold tracking-tight">PICK 3</h1>
+        <span className="flex items-center gap-2 font-mono text-xs text-muted">
+          {mock && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-accent">demo</span>}
+          {header}
+        </span>
       </header>
       {children}
-      <footer className="mt-4 text-center text-xs text-muted">
-        A game, not investment advice. Prices may be delayed. Starting money: {money(100_000).replace(".00", "")}.
-      </footer>
+      <footer className="mt-4 text-center text-xs text-muted">A game, not investment advice. Prices may be delayed.</footer>
     </main>
   );
 }

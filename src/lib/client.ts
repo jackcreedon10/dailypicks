@@ -59,6 +59,16 @@ export function ordinal(n: number): string {
   return `${n}${s}`;
 }
 
+/** "14:02:11" style countdown. */
+export function clock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
+/** One emoji per stock for share text and result rows. */
+export const dot = (ret: number) => (ret > 0.0005 ? "🟢" : ret < -0.0005 ? "🔴" : "⚪");
+
 export const money = (x: number) =>
   x.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2, minimumFractionDigits: 2 });
 

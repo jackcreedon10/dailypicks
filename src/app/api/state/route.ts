@@ -1,6 +1,6 @@
 import { authPlayer } from "@/lib/auth";
 import { db, must } from "@/lib/db";
-import { ensureGames, entryView, gameNumber, getSchedule, type Game } from "@/lib/game";
+import { distribution, ensureGames, entryView, gameNumber, getSchedule, playerStats, type Game } from "@/lib/game";
 import { handle, json } from "@/lib/http";
 import { isMockMarket } from "@/lib/market";
 
@@ -12,6 +12,7 @@ export const GET = handle(async (req: Request) => {
   await ensureGames();
   const [me, sched] = await Promise.all([authPlayer(req), getSchedule()]);
 
+  let stats = null, dist = null;
   let liveEntry = null, lastEntry = null, upcomingPicks: { symbols: string[]; allocs: number[] } | null = null;
   let groups: { code: string; name: string }[] = [];
   // How many players have locked in for the next game (shown before the open).
@@ -31,6 +32,9 @@ export const GET = handle(async (req: Request) => {
     lastEntry = p;
     upcomingPicks = (u as { symbols: string[]; allocs: number[] } | null) ?? null;
     groups = (g as unknown as { groups: { code: string; name: string } }[]).map((r) => r.groups);
+    // Stats and score distribution for whichever card is showing (live game, else last result).
+    const shown = liveEntry ? sched.live : lastEntry ? sched.last : null;
+    [stats, dist] = await Promise.all([playerStats(me.id), shown ? distribution(shown) : null]);
   }
 
   return json({
@@ -44,6 +48,8 @@ export const GET = handle(async (req: Request) => {
     lastEntry,
     upcomingPicks,
     upcomingCount,
+    stats,
+    dist,
     groups,
   });
 });

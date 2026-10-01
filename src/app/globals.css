@@ -13,20 +13,23 @@
   --s1: #3b5bfd;
   --s2: #f59e0b;
   --s3: #14b8a6;
+  --score: #3b5bfd;
 }
 
 @media (prefers-color-scheme: dark) {
+  /* Arcade terminal look, in the spirit of MapTap / GeoSports. */
   :root {
-    --bg: #0b0d12;
-    --card: #141821;
-    --line: #232937;
-    --fg: #eef1f6;
-    --muted: #8a93a6;
-    --up: #2fd17c;
-    --down: #ff5c63;
-    --accent: #6b85ff;
-    --accent-fg: #0b0d12;
-    --s1: #6b85ff;
+    --bg: #07090d;
+    --card: #0f141c;
+    --line: #1f2937;
+    --fg: #e8eef8;
+    --muted: #7c889c;
+    --up: #2ee87e;
+    --down: #ff5468;
+    --accent: #4f7cff;
+    --accent-fg: #ffffff;
+    --score: #5eead4;
+    --s1: #6b8bff;
     --s2: #fbbf24;
     --s3: #2dd4bf;
   }
@@ -42,6 +45,7 @@
   --color-down: var(--down);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-score: var(--score);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

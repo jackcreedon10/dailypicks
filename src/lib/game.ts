@@ -475,3 +475,48 @@ export async function sharedPicks(playerId: string) {
   }
   return { nickname: player.nickname, date: null, status: null, number: null, symbols: [], allocs: [], ret: null, legs: null };
 }
+
+// ---------------------------------------------------------------------------
+// Results-card stats
+// ---------------------------------------------------------------------------
+
+/**
+ * Days played, and the current streak of consecutive trading days played. A live day you
+ * haven't joined yet doesn't break the streak (you can still join).
+ */
+export async function playerStats(playerId: string, now = new Date()) {
+  const [{ count: played }, entryRows, gameRows] = await Promise.all([
+    db().from("entries").select("trade_date", { count: "exact", head: true }).eq("player_id", playerId),
+    db().from("entries").select("trade_date").eq("player_id", playerId).order("trade_date", { ascending: false }).limit(400).then(must),
+    db().from("games").select("trade_date, close_at").lte("open_at", now.toISOString()).order("trade_date", { ascending: false }).limit(400).then(must),
+  ]);
+  const playedDates = new Set((entryRows as { trade_date: string }[]).map((r) => r.trade_date));
+  const days = gameRows as { trade_date: string; close_at: string }[];
+  let i = 0;
+  if (days[0] && !playedDates.has(days[0].trade_date) && Date.parse(days[0].close_at) > now.getTime()) i = 1;
+  let streak = 0;
+  for (; i < days.length && playedDates.has(days[i].trade_date); i++) streak++;
+  return { played: played ?? 0, streak };
+}
+
+/** Score buckets (in points) for the "Where you landed" chart, best first. */
+const BUCKETS = [
+  { label: "+200 or more", min: 0.02, max: null },
+  { label: "+50 to +200", min: 0.005, max: 0.02 },
+  { label: "−50 to +50", min: -0.005, max: 0.005 },
+  { label: "−200 to −50", min: -0.02, max: -0.005 },
+  { label: "−200 or less", min: null, max: -0.02 },
+] as const;
+
+export async function distribution(game: Game) {
+  const table = game.status === "settled" ? "results" : "standings";
+  const counts = await Promise.all(
+    BUCKETS.map(async (b) => {
+      let q = db().from(table).select("player_id", { count: "exact", head: true }).eq("trade_date", game.trade_date);
+      if (b.min != null) q = q.gte("return_pct", b.min);
+      if (b.max != null) q = q.lt("return_pct", b.max);
+      return (await q).count ?? 0;
+    }),
+  );
+  return BUCKETS.map((b, i) => ({ label: b.label, min: b.min, max: b.max, count: counts[i] }));
+}
