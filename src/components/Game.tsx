@@ -178,7 +178,11 @@ export function Game({ invite }: { invite?: Invite }) {
   // otherwise the next one if you haven't locked in for it yet.
   const joinLive = !!live && !liveEntry;
   const playable: GameInfo | null = joinLive ? live : upcoming && !upcomingPicks ? upcoming : null;
-  const playableDay = playable ? (playable.date === todayEt ? "today's" : `${dayLabel(playable.date).split(",")[0]}'s`) : "";
+  const playableDay = playable
+    ? playable.date === todayEt
+      ? "today's"
+      : `${new Date(`${playable.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" })}'s`
+    : "";
 
   const header = focus ? `#${focus.number} · ${dayLabel(focus.date)}` : "";
 
