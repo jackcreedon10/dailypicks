@@ -49,7 +49,7 @@ function LockToggle({ locked, symbol, onClick }: { locked: boolean; symbol: stri
       aria-pressed={locked}
       aria-label={locked ? `Unlock ${symbol}` : `Lock ${symbol} amount`}
       title={locked ? "Locked: won't change when you adjust the others" : "Lock this amount"}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border ${
         locked ? "border-fg bg-fg text-bg" : "border-line text-muted"
       }`}
     >
@@ -188,10 +188,20 @@ export function Picker({
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && results[0] && add(results[0].symbol)}
+                // On phones, lift the search box to the top so results aren't hidden behind the keyboard.
+                onFocus={(e) => {
+                  const el = e.currentTarget;
+                  if (window.matchMedia("(max-width: 640px)").matches)
+                    setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+                }}
                 placeholder="Search any US stock: NVDA, Tesla..."
+                type="search"
+                enterKeyHint="search"
                 autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
                 autoComplete="off"
-                className="w-full rounded-xl border border-line bg-bg px-4 py-3 outline-none focus:border-accent"
+                className="w-full scroll-mt-4 rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent"
               />
               {results.length > 0 && (
                 <ul className="absolute z-10 mt-1 max-h-80 w-full overflow-y-auto overscroll-contain rounded-xl border border-line bg-card shadow-lg">
@@ -204,7 +214,7 @@ export function Picker({
                       <button
                         onClick={() => add(r.symbol)}
                         disabled={picks.includes(r.symbol)}
-                        className="flex w-full items-baseline gap-3 px-4 py-2.5 text-left hover:bg-bg disabled:opacity-40"
+                        className="flex w-full items-baseline gap-3 px-4 py-3 text-left hover:bg-bg active:bg-bg disabled:opacity-40"
                       >
                         <span className="w-16 shrink-0 font-semibold">{r.symbol}</span>
                         <span className="truncate text-sm text-muted">{r.name}</span>
@@ -240,7 +250,7 @@ export function Picker({
             <button
               onClick={() => (setAllocs(even()), setLocked([false, false, false]))}
               disabled={isEven}
-              className="shrink-0 rounded-full border border-line px-3 py-1 text-xs font-medium disabled:opacity-40"
+              className="relative shrink-0 rounded-full border border-line px-3 py-1.5 text-xs font-medium after:absolute after:-inset-2 after:content-[''] disabled:opacity-40"
             >
               Even split
             </button>
@@ -266,7 +276,7 @@ export function Picker({
                     <button
                       onClick={() => nudge(i, allocs[i] - NUDGE)}
                       disabled={stuck(i)}
-                      className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
+                      className="h-11 w-11 shrink-0 rounded-full border border-line text-xl leading-none"
                       aria-label={`Less in ${s}`}
                     >
                       &minus;
@@ -279,14 +289,14 @@ export function Picker({
                       value={allocs[i]}
                       onChange={(e) => nudge(i, Number(e.target.value))}
                       disabled={stuck(i)}
-                      className="split h-9 min-w-0 flex-1 cursor-pointer disabled:cursor-not-allowed"
+                      className="split h-11 min-w-0 flex-1 cursor-pointer disabled:cursor-not-allowed"
                       style={{ "--c": STOCK_COLORS[i], "--p": `${((allocs[i] - MIN) / (TOTAL - 3 * MIN)) * 100}%` } as React.CSSProperties}
                       aria-label={`Dollars in ${s}`}
                     />
                     <button
                       onClick={() => nudge(i, allocs[i] + NUDGE)}
                       disabled={stuck(i)}
-                      className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
+                      className="h-11 w-11 shrink-0 rounded-full border border-line text-xl leading-none"
                       aria-label={`More in ${s}`}
                     >
                       +

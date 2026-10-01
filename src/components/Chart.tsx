@@ -52,7 +52,7 @@ export function Chart({ series, start, end, baseline }: { series: Point[]; start
       <svg
         ref={ref}
         viewBox={`0 0 ${W} ${H}`}
-        className="h-44 w-full touch-none select-none"
+        className="h-44 w-full touch-pan-y select-none"
         preserveAspectRatio="none"
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}

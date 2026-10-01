@@ -15,9 +15,15 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Pick 3",
   description: "Pick 3 stocks before the bell. Watch them all day. Beat your friends.",
+  applicationName: "Pick 3",
+  appleWebApp: { capable: true, title: "Pick 3", statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f7f9" },
     { media: "(prefers-color-scheme: dark)", color: "#0b0d12" },

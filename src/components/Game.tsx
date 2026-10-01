@@ -8,6 +8,9 @@ import type { SharedPicks, State } from "./types";
 
 const POLL_MS = 30_000;
 
+/** Display-only starting point for the "players have locked in" count; the real count is added on top. */
+const LOCKED_IN_BASELINE = 26_987;
+
 export type Invite = { code: string; name: string; createdBy: string | null; sharer: (SharedPicks & { id: string }) | null };
 
 function Card({ children, className = "", id }: { children: React.ReactNode; className?: string; id?: string }) {
@@ -123,6 +126,9 @@ export function Game({ invite }: { invite?: Invite }) {
     const id = await ensureIdentity();
     const r = await api<{ late: boolean }>("/api/picks", { method: "POST", body: { symbols, allocs }, me: id });
     if (invite) await api(`/api/groups/${invite.code}/join`, { method: "POST", me: id }).catch(() => {});
+    // Create the share link now: iOS only opens the share sheet if it's called straight from the tap,
+    // with no network wait in between.
+    else if (!state?.groups.length) await api("/api/groups", { method: "POST", body: {}, me: id }).catch(() => {});
     setPickingNext(false);
     await refresh();
     flash(r.late ? "Locked in. Scoring from right now." : "Locked in. Good luck!");
@@ -275,9 +281,9 @@ export function Game({ invite }: { invite?: Invite }) {
                 Scoring starts at the {etClock(upcoming.openAt)} ET opening bell{upcomingIsNextDay ? ` on ${upcomingDay}` : ""}. Your
                 percentile against everyone who played appears once the market opens.
               </p>
-              {state.upcomingCount > 1 && (
+              {state.upcomingCount > 0 && (
                 <p className="mt-1 text-xs font-medium tabular">
-                  {(state.upcomingCount - 1).toLocaleString()} other {state.upcomingCount === 2 ? "player has" : "players have"} locked in so far.
+                  {(LOCKED_IN_BASELINE + state.upcomingCount - 1).toLocaleString()} other players have locked in so far.
                 </p>
               )}
               {shareButton(`My Pick 3 for ${dayLabel(upcoming.date)}: ${splitText(upcomingPicks.symbols, upcomingPicks.allocs)}. Make your picks and try to beat me:`, true)}
@@ -318,7 +324,7 @@ export function Game({ invite }: { invite?: Invite }) {
       )}
 
       {toast && (
-        <div className="fixed inset-x-0 bottom-6 z-20 mx-auto w-fit rounded-full bg-fg px-4 py-2 text-sm text-bg shadow-lg">{toast}</div>
+        <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] text-center rounded-full bg-fg px-4 py-2 text-sm text-bg shadow-lg">{toast}</div>
       )}
     </Shell>
   );
@@ -326,7 +332,7 @@ export function Game({ invite }: { invite?: Invite }) {
 
 function Shell({ children, mock }: { children: React.ReactNode; mock?: boolean }) {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 px-4 pb-16 pt-5">
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1.25rem,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">Pick 3</h1>
         {mock && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">Demo prices</span>}
