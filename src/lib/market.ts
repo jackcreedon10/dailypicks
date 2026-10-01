@@ -15,6 +15,8 @@ export interface MarketData {
   closingPrices(symbols: string[], closeAt: Date): Promise<Record<string, number>>;
 }
 
+const NOT_A_STOCK = /\b(warrants?|units?|rights?)\b/i;
+
 const LISTED_EXCHANGES = new Set(["NYSE", "NASDAQ", "AMEX", "ARCA", "BATS", "NYSEARCA"]);
 
 function chunk<T>(xs: T[], n: number): T[][] {
@@ -56,6 +58,8 @@ class AlpacaMarketData implements MarketData {
     >(`${this.tradingBase}/v2/assets?status=active&asset_class=us_equity`);
     return rows
       .filter((a) => a.tradable && LISTED_EXCHANGES.has(a.exchange) && /^[A-Z.]{1,6}$/.test(a.symbol))
+      // Common stock and ETFs only: drop SPAC warrants, units and rights.
+      .filter((a) => !NOT_A_STOCK.test(a.name ?? ""))
       .map((a) => ({ symbol: a.symbol, name: a.name || a.symbol, exchange: a.exchange }));
   }
 
