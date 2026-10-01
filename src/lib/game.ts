@@ -325,6 +325,8 @@ export type EntryView = {
   series: { t: string; v: number }[];
   rank: number | null;
   fieldSize: number | null;
+  /** How many players today scored strictly lower (for the percentile). */
+  beaten: number | null;
 };
 
 const num = (x: unknown) => (x == null ? null : Number(x));
@@ -381,6 +383,16 @@ export async function entryView(game: Game, playerId: string): Promise<EntryView
     }
   }
 
+  let beaten: number | null = null;
+  if (result) {
+    const { count } = await db()
+      .from(settled ? "results" : "standings")
+      .select("player_id", { count: "exact", head: true })
+      .eq("trade_date", date)
+      .lt("return_pct", result.return_pct);
+    beaten = count ?? 0;
+  }
+
   return {
     date,
     number,
@@ -395,6 +407,7 @@ export async function entryView(game: Game, playerId: string): Promise<EntryView
     series,
     rank: result ? result.rank : null,
     fieldSize: result ? result.field_size : null,
+    beaten,
   };
 }
 

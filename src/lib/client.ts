@@ -48,10 +48,15 @@ export const pts = (ret: number) => {
   return `${p > 0 ? "+" : ""}${p.toLocaleString("en-US")} pts`;
 };
 
-/** "Top 12%" style global percentile; null when there's nobody to compare against. */
-export function topPct(rank: number | null, field: number | null): string | null {
-  if (!rank || !field || field < 2) return null;
-  return `Top ${Math.max(1, Math.ceil((rank / field) * 100))}%`;
+/** Percent of the other players you're beating (0-100); null when there's nobody else. */
+export function percentile(beaten: number | null, field: number | null): number | null {
+  if (beaten == null || !field || field < 2) return null;
+  return Math.floor((beaten / (field - 1)) * 100);
+}
+
+export function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${n}${s}`;
 }
 
 export const money = (x: number) =>

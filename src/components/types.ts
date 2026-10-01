@@ -18,6 +18,7 @@ export type Entry = {
   series: { t: string; v: number }[];
   rank: number | null;
   fieldSize: number | null;
+  beaten: number | null;
 };
 
 export type State = {
@@ -30,6 +31,7 @@ export type State = {
   liveEntry: Entry | null;
   lastEntry: Entry | null;
   upcomingPicks: { symbols: string[]; allocs: number[] } | null;
+  upcomingCount: number;
   groups: { code: string; name: string }[];
 };
 

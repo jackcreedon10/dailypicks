@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, dayLabel, etClock, loadIdentity, money, pct, pts, saveIdentity, shareText, timeLeft, tone, type Identity } from "@/lib/client";
-import { Leaderboard } from "./Leaderboard";
+import { api, dayLabel, etClock, loadIdentity, money, ordinal, pct, percentile, pts, saveIdentity, shareText, timeLeft, tone, type Identity } from "@/lib/client";
 import { Picker, SplitBar, STOCK_COLORS } from "./Picker";
 import { Portfolio } from "./Portfolio";
 import type { SharedPicks, State } from "./types";
@@ -56,7 +55,6 @@ export function Game({ invite }: { invite?: Invite }) {
   const [me, setMe] = useState<Identity | null>(null);
   const [state, setState] = useState<State | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [pickingNext, setPickingNext] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -73,7 +71,6 @@ export function Game({ invite }: { invite?: Invite }) {
       }
       setState(s);
       setLoadError(null);
-      setRefreshKey((n) => n + 1);
     } catch (e) {
       setLoadError((e as Error).message);
     }
@@ -237,7 +234,7 @@ export function Game({ invite }: { invite?: Invite }) {
         <Card>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold">Today</h2>
-            {shareButton(`My Daily Picks today: ${splitText(liveEntry.symbols, liveEntry.allocs)}. I'm at ${pts(liveEntry.ret)} as of ${etClock(new Date().toISOString())} ET. Make your picks and try to beat me:`)}
+            {shareButton(`My Daily Picks today: ${splitText(liveEntry.symbols, liveEntry.allocs)}. I'm at ${pts(liveEntry.ret)}${percentile(liveEntry.beaten, liveEntry.fieldSize) != null ? ` (${ordinal(percentile(liveEntry.beaten, liveEntry.fieldSize)!)} percentile)` : ""} as of ${etClock(new Date().toISOString())} ET. Make your picks and try to beat me:`)}
           </div>
           <Portfolio entry={liveEntry} game={live} />
         </Card>
@@ -276,8 +273,14 @@ export function Game({ invite }: { invite?: Invite }) {
                 <LockedPicks symbols={upcomingPicks.symbols} allocs={upcomingPicks.allocs} />
               </div>
               <p className="mt-2 text-xs text-muted">
-                Scoring starts at the {etClock(upcoming.openAt)} ET opening bell{upcomingIsNextDay ? ` on ${upcomingDay}` : ""}.
+                Scoring starts at the {etClock(upcoming.openAt)} ET opening bell{upcomingIsNextDay ? ` on ${upcomingDay}` : ""}. Your
+                percentile against everyone who played appears once the market opens.
               </p>
+              {state.upcomingCount > 1 && (
+                <p className="mt-1 text-xs font-medium tabular">
+                  {(state.upcomingCount - 1).toLocaleString()} other {state.upcomingCount === 2 ? "player has" : "players have"} locked in so far.
+                </p>
+              )}
               {shareButton(`My Daily Picks for ${dayLabel(upcoming.date)}: ${splitText(upcomingPicks.symbols, upcomingPicks.allocs)}. Make your picks and try to beat me:`, true)}
             </>
           ) : live && !pickingNext ? (
@@ -310,18 +313,9 @@ export function Game({ invite }: { invite?: Invite }) {
             <h2 className="font-semibold">
               {lastEntry.status === "settled" ? "Final" : "Settling"}: {dayLabel(lastEntry.date)}
             </h2>
-            {shareButton(`My Daily Picks for ${dayLabel(lastEntry.date)}: ${splitText(lastEntry.symbols, lastEntry.allocs)}. Finished at ${pts(lastEntry.ret)}. Make your picks and try to beat me:`)}
+            {shareButton(`My Daily Picks for ${dayLabel(lastEntry.date)}: ${splitText(lastEntry.symbols, lastEntry.allocs)}. Finished at ${pts(lastEntry.ret)}${percentile(lastEntry.beaten, lastEntry.fieldSize) != null ? `, ${ordinal(percentile(lastEntry.beaten, lastEntry.fieldSize)!)} percentile` : ""}. Make your picks and try to beat me:`)}
           </div>
           <Portfolio entry={lastEntry} game={last} />
-        </Card>
-      )}
-
-      {(live || last) && (
-        <Card>
-          <Leaderboard me={me} groups={state.groups} refreshKey={refreshKey} live={!!live} />
-          {state.groups.length === 0 && me && (liveEntry || upcomingPicks) && (
-            <p className="mt-4 text-center text-sm text-muted">Share your picks to start a friends leaderboard.</p>
-          )}
         </Card>
       )}
 

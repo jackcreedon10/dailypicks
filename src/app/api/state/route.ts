@@ -14,6 +14,10 @@ export const GET = handle(async (req: Request) => {
 
   let liveEntry = null, lastEntry = null, upcomingPicks: { symbols: string[]; allocs: number[] } | null = null;
   let groups: { code: string; name: string }[] = [];
+  // How many players have locked in for the next game (shown before the open).
+  const upcomingCount = sched.upcoming
+    ? ((await db().from("entries").select("player_id", { count: "exact", head: true }).eq("trade_date", sched.upcoming.trade_date)).count ?? 0)
+    : 0;
   if (me) {
     const [l, p, u, g] = await Promise.all([
       sched.live ? entryView(sched.live, me.id) : null,
@@ -39,6 +43,7 @@ export const GET = handle(async (req: Request) => {
     liveEntry,
     lastEntry,
     upcomingPicks,
+    upcomingCount,
     groups,
   });
 });

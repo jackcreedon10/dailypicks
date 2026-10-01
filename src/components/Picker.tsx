@@ -15,21 +15,50 @@ export const even = (): number[] => [34_000, 33_000, 33_000];
 const pctOf = (x: number) => `${Math.round((x / TOTAL) * 100)}%`;
 
 /**
- * Set stock i to `value` and rebalance the other two so the total stays $100,000.
- * The other two keep their relative sizes; everything snaps to $1,000 and stays >= $1,000.
+ * Set stock i to `value` and rebalance so the total stays $100,000. Locked stocks never move;
+ * the difference comes out of the unlocked ones (in proportion to their size if there are two).
+ * Everything snaps to $1,000 and stays >= $1,000. With no unlocked stock to absorb the change,
+ * nothing moves.
  */
-export function rebalance(allocs: number[], i: number, value: number): number[] {
-  const v = Math.min(Math.max(Math.round(value / STEP) * STEP, MIN), TOTAL - 2 * MIN);
-  const [a, b] = [0, 1, 2].filter((k) => k !== i);
-  const rest = TOTAL - v;
-  const share = allocs[a] + allocs[b] > 0 ? allocs[a] / (allocs[a] + allocs[b]) : 0.5;
-  let na = Math.round((rest * share) / STEP) * STEP;
-  na = Math.min(Math.max(na, MIN), rest - MIN);
+export function rebalance(allocs: number[], i: number, value: number, locked: boolean[] = [false, false, false]): number[] {
+  const others = [0, 1, 2].filter((k) => k !== i);
+  const free = others.filter((k) => !locked[k]);
+  if (!free.length) return allocs;
+  const held = others.filter((k) => locked[k]).reduce((a, k) => a + allocs[k], 0);
+  const max = TOTAL - held - free.length * MIN;
+  const v = Math.min(Math.max(Math.round(value / STEP) * STEP, MIN), max);
+  const rest = TOTAL - held - v;
   const out = [...allocs];
   out[i] = v;
-  out[a] = na;
-  out[b] = rest - na;
+  if (free.length === 1) {
+    out[free[0]] = rest;
+  } else {
+    const [a, b] = free;
+    const share = allocs[a] + allocs[b] > 0 ? allocs[a] / (allocs[a] + allocs[b]) : 0.5;
+    const na = Math.min(Math.max(Math.round((rest * share) / STEP) * STEP, MIN), rest - MIN);
+    out[a] = na;
+    out[b] = rest - na;
+  }
   return out;
+}
+
+function LockToggle({ locked, symbol, onClick }: { locked: boolean; symbol: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={locked}
+      aria-label={locked ? `Unlock ${symbol}` : `Lock ${symbol} amount`}
+      title={locked ? "Locked: won't change when you adjust the others" : "Lock this amount"}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
+        locked ? "border-fg bg-fg text-bg" : "border-line text-muted"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d={locked ? "M8 11V7a4 4 0 0 1 8 0v4" : "M8 11V7a4 4 0 0 1 7.5-2"} />
+      </svg>
+    </button>
+  );
 }
 
 export function SplitBar({ symbols, allocs, className = "h-3" }: { symbols: string[]; allocs: number[]; className?: string }) {
@@ -76,6 +105,7 @@ export function Picker({
   const [step, setStep] = useState(0);
   const [picks, setPicks] = useState<string[]>([]);
   const [allocs, setAllocs] = useState<number[]>(even());
+  const [locked, setLocked] = useState<boolean[]>([false, false, false]);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Result[]>([]);
   const [nickname, setNickname] = useState("");
@@ -107,6 +137,7 @@ export function Picker({
   function remove(sym: string) {
     setPicks(picks.filter((p) => p !== sym));
     setAllocs(even());
+    setLocked([false, false, false]);
   }
 
   async function submit() {
@@ -122,7 +153,11 @@ export function Picker({
     }
   }
 
-  const isEven = allocs.every((a, i) => a === even()[i]);
+  const isEven = allocs.every((a, i) => a === even()[i]) && !locked.some(Boolean);
+  const nudge = (i: number, value: number) => setAllocs(rebalance(allocs, i, value, locked));
+  // A stock can't move when both of the others are locked.
+  const stuck = (i: number) => [0, 1, 2].filter((k) => k !== i).every((k) => locked[k]);
+  const toggleLock = (i: number) => setLocked(locked.map((l, k) => (k === i ? !l : l)));
 
   return (
     <div>
@@ -205,9 +240,9 @@ export function Picker({
       {step === 1 && (
         <>
           <div className="flex items-baseline justify-between">
-            <p className="text-sm text-muted">Drag to put more money behind your favorites.</p>
+            <p className="text-sm text-muted">Drag to put more money behind your favorites. Tap the lock to hold one in place.</p>
             <button
-              onClick={() => setAllocs(even())}
+              onClick={() => (setAllocs(even()), setLocked([false, false, false]))}
               disabled={isEven}
               className="shrink-0 rounded-full border border-line px-3 py-1 text-xs font-medium disabled:opacity-40"
             >
@@ -220,46 +255,58 @@ export function Picker({
           <ul className="mt-4 space-y-4">
             {picks.map((s, i) => (
               <li key={s}>
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold">
-                    <span className="h-3 w-3 rounded-full" style={{ background: STOCK_COLORS[i] }} />
-                    {s}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-center gap-2 font-semibold">
+                    <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: STOCK_COLORS[i] }} />
+                    <span className="truncate">{s}</span>
                   </span>
-                  <span className="tabular">
+                  <span className="shrink-0 tabular">
                     <span className="text-lg font-semibold">{money(allocs[i]).replace(".00", "")}</span>
                     <span className="ml-1.5 text-sm text-muted">{pctOf(allocs[i])}</span>
                   </span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-2">
-                  <button
-                    onClick={() => setAllocs(rebalance(allocs, i, allocs[i] - NUDGE))}
-                    className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
-                    aria-label={`Less in ${s}`}
-                  >
-                    &minus;
-                  </button>
-                  <input
-                    type="range"
-                    min={MIN}
-                    max={TOTAL - 2 * MIN}
-                    step={STEP}
-                    value={allocs[i]}
-                    onChange={(e) => setAllocs(rebalance(allocs, i, Number(e.target.value)))}
-                    className="split h-9 flex-1 cursor-pointer"
-                    style={{ "--c": STOCK_COLORS[i], "--p": `${((allocs[i] - MIN) / (TOTAL - 3 * MIN)) * 100}%` } as React.CSSProperties}
-                    aria-label={`Dollars in ${s}`}
-                  />
-                  <button
-                    onClick={() => setAllocs(rebalance(allocs, i, allocs[i] + NUDGE))}
-                    className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
-                    aria-label={`More in ${s}`}
-                  >
-                    +
-                  </button>
+                  <div className={`flex min-w-0 flex-1 items-center gap-2 ${stuck(i) ? "opacity-40" : ""}`}>
+                    <button
+                      onClick={() => nudge(i, allocs[i] - NUDGE)}
+                      disabled={stuck(i)}
+                      className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
+                      aria-label={`Less in ${s}`}
+                    >
+                      &minus;
+                    </button>
+                    <input
+                      type="range"
+                      min={MIN}
+                      max={TOTAL - 2 * MIN}
+                      step={STEP}
+                      value={allocs[i]}
+                      onChange={(e) => nudge(i, Number(e.target.value))}
+                      disabled={stuck(i)}
+                      className="split h-9 min-w-0 flex-1 cursor-pointer disabled:cursor-not-allowed"
+                      style={{ "--c": STOCK_COLORS[i], "--p": `${((allocs[i] - MIN) / (TOTAL - 3 * MIN)) * 100}%` } as React.CSSProperties}
+                      aria-label={`Dollars in ${s}`}
+                    />
+                    <button
+                      onClick={() => nudge(i, allocs[i] + NUDGE)}
+                      disabled={stuck(i)}
+                      className="h-9 w-9 shrink-0 rounded-full border border-line text-lg leading-none"
+                      aria-label={`More in ${s}`}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <LockToggle locked={locked[i]} symbol={s} onClick={() => toggleLock(i)} />
                 </div>
               </li>
             ))}
           </ul>
+
+          {locked.filter(Boolean).length === 2 && (
+            <p className="mt-3 rounded-lg bg-bg px-3 py-2 text-center text-xs text-muted">
+              Two stocks are locked, so the third can&apos;t move. Unlock one to keep adjusting.
+            </p>
+          )}
 
           <p className="mt-4 text-center text-xs text-muted tabular">Total {money(TOTAL).replace(".00", "")}, always fully invested</p>
 
