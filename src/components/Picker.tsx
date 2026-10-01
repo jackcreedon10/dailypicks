@@ -90,16 +90,14 @@ function Steps({ step }: { step: number }) {
 }
 
 export function Picker({
-  needsNickname,
   submitLabel,
   lockNote,
   onSubmit,
   onCancel,
 }: {
-  needsNickname: boolean;
   submitLabel: string;
   lockNote: string;
-  onSubmit: (symbols: string[], allocs: number[], nickname: string) => Promise<void>;
+  onSubmit: (symbols: string[], allocs: number[]) => Promise<void>;
   onCancel?: () => void;
 }) {
   const [step, setStep] = useState(0);
@@ -108,7 +106,6 @@ export function Picker({
   const [locked, setLocked] = useState<boolean[]>([false, false, false]);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<Result[]>([]);
-  const [nickname, setNickname] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -142,10 +139,9 @@ export function Picker({
 
   async function submit() {
     setError(null);
-    if (needsNickname && !nickname.trim()) return setError("Add a nickname so friends know it's you");
     setBusy(true);
     try {
-      await onSubmit(picks, allocs, nickname.trim());
+      await onSubmit(picks, allocs);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -339,15 +335,6 @@ export function Picker({
             ))}
           </ul>
 
-          {needsNickname && (
-            <input
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              maxLength={20}
-              placeholder="Your nickname (friends will see this)"
-              className="mt-3 w-full rounded-xl border border-line bg-bg px-4 py-3 outline-none focus:border-accent"
-            />
-          )}
 
           <p className="mt-3 rounded-lg bg-bg px-3 py-2 text-sm text-muted">{lockNote}</p>
           {error && <p className="mt-2 text-sm text-down">{error}</p>}

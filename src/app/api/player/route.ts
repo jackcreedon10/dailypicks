@@ -1,12 +1,12 @@
+import { randomInt } from "node:crypto";
 import { authPlayer, cleanNickname, newToken } from "@/lib/auth";
 import { db, must } from "@/lib/db";
 import { GameError } from "@/lib/game";
 import { body, handle, json } from "@/lib/http";
 
-/** Create an anonymous player. Returns the only copy of the token. */
+/** Create an anonymous player. Returns the only copy of the token. Players aren't shown by name. */
 export const POST = handle(async (req: Request) => {
-  const nickname = cleanNickname((await body(req)).nickname);
-  if (!nickname) throw new GameError("Pick a nickname");
+  const nickname = cleanNickname((await body(req)).nickname) ?? `Player ${randomInt(1000, 10000)}`;
   const { token, hash } = newToken();
   const row = must(
     await db().from("players").insert({ nickname, token_hash: hash }).select("id, nickname").single(),

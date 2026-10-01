@@ -33,10 +33,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   if (!invite) return { title: "Daily Picks" };
   const s = invite.sharer;
   const title = s?.symbols.length
-    ? `${s.nickname}'s picks: ${s.symbols.map((sym, i) => `${sym} $${Math.round(s.allocs[i] / 1000)}k`).join(", ")}`
-    : invite.createdBy
-      ? `${invite.createdBy} challenged you on Daily Picks`
-      : `Join ${invite.name} on Daily Picks`;
+    ? `My Daily Picks: ${s.symbols.map((sym, i) => `${sym} $${Math.round(s.allocs[i] / 1000)}k`).join(", ")}`
+    : "You've been challenged on Daily Picks";
   const description = "Pick 3 stocks, split $100,000 between them, and see who wins at the close.";
   return { title, description, openGraph: { title, description } };
 }

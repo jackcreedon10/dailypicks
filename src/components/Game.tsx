@@ -110,17 +110,17 @@ export function Game({ invite }: { invite?: Invite }) {
     setTimeout(() => setToast(null), 2500);
   }
 
-  async function ensureIdentity(nickname: string): Promise<Identity> {
+  async function ensureIdentity(): Promise<Identity> {
     if (me) return me;
-    const created = await api<Identity>("/api/player", { method: "POST", body: { nickname } });
+    const created = await api<Identity>("/api/player", { method: "POST", body: {} });
     saveIdentity(created);
     meRef.current = created;
     setMe(created);
     return created;
   }
 
-  async function submitPicks(symbols: string[], allocs: number[], nickname: string) {
-    const id = await ensureIdentity(nickname);
+  async function submitPicks(symbols: string[], allocs: number[]) {
+    const id = await ensureIdentity();
     const r = await api<{ late: boolean }>("/api/picks", { method: "POST", body: { symbols, allocs }, me: id });
     if (invite) await api(`/api/groups/${invite.code}/join`, { method: "POST", me: id }).catch(() => {});
     setPickingNext(false);
@@ -199,7 +199,7 @@ export function Game({ invite }: { invite?: Invite }) {
       {sharer && (
         <Card className="border-accent">
           <p className="font-semibold">
-            {sharer.nickname}&apos;s picks{sharer.date ? ` for ${dayLabel(sharer.date)}` : ""}
+            Your friend&apos;s picks{sharer.date ? ` for ${dayLabel(sharer.date)}` : ""}
           </p>
           {sharer.ret != null && (
             <p className="text-sm text-muted">
@@ -224,7 +224,7 @@ export function Game({ invite }: { invite?: Invite }) {
       )}
       {invite && !sharer && !state.groups.some((g) => g.code === invite.code) && (
         <Card className="border-accent">
-          <p className="font-semibold">{invite.createdBy ? `${invite.createdBy} invited you` : "You're invited"} to {invite.name}</p>
+          <p className="font-semibold">You&apos;ve been invited to play Daily Picks</p>
           <p className="mt-1 text-sm text-muted">Pick 3 stocks, split $100,000 between them, and see who wins at the close.</p>
         </Card>
       )}
@@ -247,7 +247,6 @@ export function Game({ invite }: { invite?: Invite }) {
             Pick 3 stocks and split $100,000 between them. You&apos;re scored from right now until the {etClock(live.closeAt)} ET close.
           </p>
           <Picker
-            needsNickname={!me}
             submitLabel="Lock in my picks"
             lockNote="Once you lock in, your picks and split can't be changed today."
             onSubmit={submitPicks}
@@ -295,7 +294,6 @@ export function Game({ invite }: { invite?: Invite }) {
                 </p>
               )}
               <Picker
-                needsNickname={!me}
                 submitLabel="Lock in my picks"
                 lockNote={`Once you lock in, your picks and split can't be changed for ${upcomingDay}.`}
                 onSubmit={submitPicks}
