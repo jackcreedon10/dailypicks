@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Daily Picks",
+  title: "Pick 3",
   description: "Pick 3 stocks before the bell. Watch them all day. Beat your friends.",
 };
 

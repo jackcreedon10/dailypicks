@@ -224,7 +224,7 @@ export function Game({ invite }: { invite?: Invite }) {
       )}
       {invite && !sharer && !state.groups.some((g) => g.code === invite.code) && (
         <Card className="border-accent">
-          <p className="font-semibold">You&apos;ve been invited to play Daily Picks</p>
+          <p className="font-semibold">You&apos;ve been invited to play Pick 3</p>
           <p className="mt-1 text-sm text-muted">Pick 3 stocks, split $100,000 between them, and see who wins at the close.</p>
         </Card>
       )}
@@ -234,7 +234,7 @@ export function Game({ invite }: { invite?: Invite }) {
         <Card>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-semibold">Today</h2>
-            {shareButton(`My Daily Picks today: ${splitText(liveEntry.symbols, liveEntry.allocs)}. I'm at ${pts(liveEntry.ret)}${percentile(liveEntry.beaten, liveEntry.fieldSize) != null ? ` (${ordinal(percentile(liveEntry.beaten, liveEntry.fieldSize)!)} percentile)` : ""} as of ${etClock(new Date().toISOString())} ET. Make your picks and try to beat me:`)}
+            {shareButton(`My Pick 3 today: ${splitText(liveEntry.symbols, liveEntry.allocs)}. I'm at ${pts(liveEntry.ret)}${percentile(liveEntry.beaten, liveEntry.fieldSize) != null ? ` (${ordinal(percentile(liveEntry.beaten, liveEntry.fieldSize)!)} percentile)` : ""} as of ${etClock(new Date().toISOString())} ET. Make your picks and try to beat me:`)}
           </div>
           <Portfolio entry={liveEntry} game={live} />
         </Card>
@@ -280,7 +280,7 @@ export function Game({ invite }: { invite?: Invite }) {
                   {(state.upcomingCount - 1).toLocaleString()} other {state.upcomingCount === 2 ? "player has" : "players have"} locked in so far.
                 </p>
               )}
-              {shareButton(`My Daily Picks for ${dayLabel(upcoming.date)}: ${splitText(upcomingPicks.symbols, upcomingPicks.allocs)}. Make your picks and try to beat me:`, true)}
+              {shareButton(`My Pick 3 for ${dayLabel(upcoming.date)}: ${splitText(upcomingPicks.symbols, upcomingPicks.allocs)}. Make your picks and try to beat me:`, true)}
             </>
           ) : live && !pickingNext ? (
             <button onClick={() => setPickingNext(true)} className="mt-3 w-full rounded-xl border border-dashed border-line py-3 text-sm text-muted">
@@ -311,7 +311,7 @@ export function Game({ invite }: { invite?: Invite }) {
             <h2 className="font-semibold">
               {lastEntry.status === "settled" ? "Final" : "Settling"}: {dayLabel(lastEntry.date)}
             </h2>
-            {shareButton(`My Daily Picks for ${dayLabel(lastEntry.date)}: ${splitText(lastEntry.symbols, lastEntry.allocs)}. Finished at ${pts(lastEntry.ret)}${percentile(lastEntry.beaten, lastEntry.fieldSize) != null ? `, ${ordinal(percentile(lastEntry.beaten, lastEntry.fieldSize)!)} percentile` : ""}. Make your picks and try to beat me:`)}
+            {shareButton(`My Pick 3 for ${dayLabel(lastEntry.date)}: ${splitText(lastEntry.symbols, lastEntry.allocs)}. Finished at ${pts(lastEntry.ret)}${percentile(lastEntry.beaten, lastEntry.fieldSize) != null ? `, ${ordinal(percentile(lastEntry.beaten, lastEntry.fieldSize)!)} percentile` : ""}. Make your picks and try to beat me:`)}
           </div>
           <Portfolio entry={lastEntry} game={last} />
         </Card>
@@ -328,7 +328,7 @@ function Shell({ children, mock }: { children: React.ReactNode; mock?: boolean }
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 px-4 pb-16 pt-5">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight">Daily Picks</h1>
+        <h1 className="text-xl font-bold tracking-tight">Pick 3</h1>
         {mock && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">Demo prices</span>}
       </header>
       {children}

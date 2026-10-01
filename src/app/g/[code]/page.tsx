@@ -30,11 +30,11 @@ async function loadInvite({ params, searchParams }: Props): Promise<Invite | nul
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const invite = await loadInvite(props);
-  if (!invite) return { title: "Daily Picks" };
+  if (!invite) return { title: "Pick 3" };
   const s = invite.sharer;
   const title = s?.symbols.length
-    ? `My Daily Picks: ${s.symbols.map((sym, i) => `${sym} $${Math.round(s.allocs[i] / 1000)}k`).join(", ")}`
-    : "You've been challenged on Daily Picks";
+    ? `My Pick 3: ${s.symbols.map((sym, i) => `${sym} $${Math.round(s.allocs[i] / 1000)}k`).join(", ")}`
+    : "You've been challenged on Pick 3";
   const description = "Pick 3 stocks, split $100,000 between them, and see who wins at the close.";
   return { title, description, openGraph: { title, description } };
 }

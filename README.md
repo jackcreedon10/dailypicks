@@ -1,4 +1,4 @@
-# Daily Picks
+# Pick 3
 
 A daily stock-picking game. Pick 3 US stocks before the opening bell, watch a $100,000 pretend portfolio move all day, and compare with friends on live leaderboards. No accounts.
 
