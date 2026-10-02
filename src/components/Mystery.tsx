@@ -26,7 +26,7 @@ type Stats = {
 type Result = { guesses: GuessResult[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
 
 // Bump the version to make every device forget its saved guesses (e.g. after clearing plays from the database).
-const saved = (date: string) => `tickr.v2.${date}`;
+const saved = (date: string) => `tickr.v3.${date}`;
 const SHOW_SECTOR = "tickr.showSector";
 
 function loadGuesses(date: string): string[] {
