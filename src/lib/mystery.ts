@@ -3,7 +3,7 @@ import { db, must } from "./db";
 import { GameError } from "./game";
 import { addDays, etDate } from "./time";
 
-// Daily Tickr: guess the day's S&P 500 company from its 1-year chart, in 6 tries.
+// Daily Tickr: guess the day's S&P 500 company from its 1-year chart, in 5 tries.
 // The answer never leaves the server until the puzzle is finished.
 
 export type Company = {
@@ -24,13 +24,13 @@ export type Company = {
 export const COMPANIES = companiesJson as Company[];
 const BY_SYMBOL = new Map(COMPANIES.map((c) => [c.symbol, c]));
 
-export const MAX_GUESSES = 6;
+export const MAX_GUESSES = 5;
 
 /** Puzzle #1. One new puzzle every day at midnight New York time. */
 const FIRST_DAY = "2026-10-02";
 
 /** Household names only, so the answer is get-able. Any S&P 500 company can be guessed. */
-const ANSWER_POOL = `AAPL MSFT NVDA AMZN GOOGL META TSLA NFLX DIS NKE SBUX MCD KO PEP WMT COST TGT HD LOW JPM BAC
+export const ANSWER_POOL = `AAPL MSFT NVDA AMZN GOOGL META TSLA NFLX DIS NKE SBUX MCD KO PEP WMT COST TGT HD LOW JPM BAC
 WFC GS MS V MA AXP PYPL JNJ PFE MRK ABBV LLY UNH CVS XOM CVX BA GE CAT DE F GM UPS FDX DAL UAL LUV MAR HLT ABNB
 UBER BKNG EXPE CMG YUM DPZ HSY MDLZ GIS KHC CL PG KMB EL ULTA BBY ORCL CRM ADBE INTC AMD QCOM CSCO IBM DELL HPQ
 AVGO MU T VZ TMUS CMCSA WBD TTWO HAS LULU TJX ROST DG DLTR KR SYY TSN HRL CLX LVS WYNN MGM CCL RCL NCLH MMM HON
@@ -115,10 +115,10 @@ export function compare(g: Company, a: Company): GuessRow {
 /** Clues that unlock as wrong guesses pile up, so everyone can get there. */
 export function hints(a: Company, wrong: number) {
   const out: { label: string; value: string }[] = [{ label: "Sector", value: a.sector }];
-  if (wrong >= 2) out.push({ label: "Industry", value: a.industry });
-  if (wrong >= 3) out.push({ label: "Headquarters", value: a.hq });
-  if (wrong >= 4) out.push({ label: "Founded", value: a.foundedText });
-  if (wrong >= 5) out.push({ label: "Starts with", value: `"${a.name[0]}" (ticker ${a.symbol[0]}…)` });
+  if (wrong >= 1) out.push({ label: "Industry", value: a.industry });
+  if (wrong >= 2) out.push({ label: "Headquarters", value: a.hq });
+  if (wrong >= 3) out.push({ label: "Founded", value: a.foundedText });
+  if (wrong >= 4) out.push({ label: "Starts with", value: `"${a.name[0]}" (ticker ${a.symbol[0]}…)` });
   return out;
 }
 
@@ -246,14 +246,18 @@ export async function reveal(a: Company, date: string) {
 
 export type Reveal = Awaited<ReturnType<typeof reveal>>;
 
+/** Your own record only: totals, streaks, how many guesses you usually need, and your recent puzzles. */
 export async function stats(playerId: string, date: string) {
-  const [mine, todays] = await Promise.all([
-    db().from("mystery_plays").select("puzzle_date, solved").eq("player_id", playerId).order("puzzle_date", { ascending: false }).limit(500).then(must),
-    db().from("mystery_plays").select("guesses, solved").eq("puzzle_date", date).limit(10_000).then(must),
-  ]);
-  const plays = mine as { puzzle_date: string; solved: boolean }[];
+  const plays = (await db()
+    .from("mystery_plays")
+    .select("puzzle_date, solved, guesses")
+    .eq("player_id", playerId)
+    .order("puzzle_date", { ascending: false })
+    .limit(1000)
+    .then(must)) as { puzzle_date: string; solved: boolean; guesses: string[] }[];
   const wins = plays.filter((p) => p.solved).length;
-  // Streak: consecutive days solved, ending today (or yesterday, if today isn't finished).
+
+  // Streaks count consecutive days solved. The current one ends today (or yesterday, if today isn't finished).
   const solvedDays = new Set(plays.filter((p) => p.solved).map((p) => p.puzzle_date));
   let day = solvedDays.has(date) ? date : addDays(date, -1);
   let streak = 0;
@@ -261,10 +265,24 @@ export async function stats(playerId: string, date: string) {
     streak++;
     day = addDays(day, -1);
   }
-  // Today's distribution: how many players solved in 1..6, and how many missed.
+  let best = 0;
+  for (const d of solvedDays) {
+    if (solvedDays.has(addDays(d, -1))) continue; // only count from the start of each run
+    let n = 0;
+    while (solvedDays.has(addDays(d, n))) n++;
+    best = Math.max(best, n);
+  }
+
+  // How many of your games you solved in 1..5 guesses; the last slot is misses.
   const dist = Array.from({ length: MAX_GUESSES + 1 }, () => 0);
-  for (const p of todays as { guesses: string[]; solved: boolean }[]) dist[p.solved ? p.guesses.length - 1 : MAX_GUESSES]++;
-  return { played: plays.length, winPct: plays.length ? Math.round((wins / plays.length) * 100) : 0, streak, dist };
+  for (const p of plays) dist[p.solved ? Math.min(p.guesses.length, MAX_GUESSES) - 1 : MAX_GUESSES]++;
+
+  const recent = plays.slice(0, 10).map((p) => {
+    const a = answerFor(p.puzzle_date);
+    return { number: puzzleNumber(p.puzzle_date), date: p.puzzle_date, name: a.name, symbol: a.symbol, guesses: p.guesses.length, solved: p.solved };
+  });
+
+  return { played: plays.length, winPct: plays.length ? Math.round((wins / plays.length) * 100) : 0, streak, best, dist, recent };
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +290,7 @@ export async function stats(playerId: string, date: string) {
 // ---------------------------------------------------------------------------
 
 export function parseGuesses(raw: unknown): Company[] {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_GUESSES) throw new GameError("Send 1 to 6 guesses");
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_GUESSES) throw new GameError(`Send 1 to ${MAX_GUESSES} guesses`);
   const out = raw.map((s) => {
     const c = typeof s === "string" ? BY_SYMBOL.get(s.toUpperCase()) : undefined;
     if (!c) throw new GameError(`Not an S&P 500 company: ${String(s)}`);

@@ -6,10 +6,18 @@ import type { Bar, GuessRow, Mark, Reveal } from "@/lib/mystery";
 
 type Hint = { label: string; value: string };
 type Puzzle = { date: string; number: number; maxGuesses: number; chart: Bar[]; hints: Hint[]; finishedGuesses: string[] | null };
-type Stats = { played: number; winPct: number; streak: number; dist: number[] };
+type Stats = {
+  played: number;
+  winPct: number;
+  streak: number;
+  best: number;
+  dist: number[];
+  recent: { number: number; date: string; name: string; symbol: string; guesses: number; solved: boolean }[];
+};
 type Result = { rows: GuessRow[]; hints: Hint[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
 
 const saved = (date: string) => `mystery.${date}`;
+const SHOW_SECTOR = "tickr.showSector";
 
 function loadGuesses(date: string): string[] {
   try {
@@ -186,7 +194,39 @@ function Row({ r }: { r: GuessRow }) {
   );
 }
 
-function Guesser({ companies, taken, disabled, onGuess }: { companies: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void }) {
+/** Every possible answer, A to Z, with no grouping (grouping by sector would give it away). Tapping a name fills the guess box; it doesn't guess. */
+function AnswerBank({ bank, taken, onPick }: { bank: [string, string][]; taken: Set<string>; onPick: (name: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-1.5 font-mono text-xs text-muted">
+        <span className="flex h-4 w-4 items-center justify-center rounded border border-line text-[11px] leading-none">{open ? "−" : "+"}</span>
+        {open ? "Hide stock list" : "Stuck? Browse possible answers"}
+      </button>
+      {open && (
+        <div className="mt-2 rounded-xl border border-line">
+          <p className="border-b border-line px-3 py-2 text-xs text-muted">
+            Every answer is one of these {bank.length} companies. Tap one to put it in the guess box.
+          </p>
+          <div className="flex max-h-72 flex-wrap gap-1.5 overflow-y-auto p-3">
+            {bank.map(([sym, name]) => (
+              <button
+                key={sym}
+                onClick={() => onPick(name)}
+                disabled={taken.has(sym)}
+                className="rounded-full border border-line px-2.5 py-1 text-xs active:bg-line/60 disabled:line-through disabled:opacity-40"
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [string, string][]; bank: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void }) {
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const matches = useMemo(() => {
@@ -210,33 +250,44 @@ function Guesser({ companies, taken, disabled, onGuess }: { companies: [string, 
   }
 
   return (
-    <div className="relative">
-      <input
-        ref={input}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && matches[0] && pick(matches[0].sym)}
-        disabled={disabled}
-        type="search"
-        inputMode="search"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        placeholder="Guess a company: Nike, AAPL..."
-        className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
+    <div>
+      <div className="relative">
+        <input
+          ref={input}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && matches[0] && pick(matches[0].sym)}
+          disabled={disabled}
+          type="search"
+          inputMode="search"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="Guess a company: Nike, AAPL..."
+          className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
+        />
+        {matches.length > 0 && (
+          <ul className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-line bg-card shadow-lg">
+            {matches.map((m) => (
+              <li key={m.sym}>
+                <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left active:bg-line/60">
+                  <span className="truncate">{m.name}</span>
+                  <span className="font-mono text-xs text-muted">{m.sym}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <AnswerBank
+        bank={bank}
+        taken={taken}
+        onPick={(name) => {
+          setQ(name);
+          input.current?.focus();
+          input.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }}
       />
-      {matches.length > 0 && (
-        <ul className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-line bg-card shadow-lg">
-          {matches.map((m) => (
-            <li key={m.sym}>
-              <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left active:bg-line/60">
-                <span className="truncate">{m.name}</span>
-                <span className="font-mono text-xs text-muted">{m.sym}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -310,33 +361,35 @@ function RevealCard({ r, bars }: { r: Reveal; bars: Bar[] }) {
   );
 }
 
-function StatsCard({ s, mine }: { s: Stats; mine: number | null }) {
-  const total = s.dist.reduce((a, b) => a + b, 0);
+/** Your record: totals, your guess distribution across every game (today highlighted), and recent puzzles. */
+function StatsCard({ s, mine, max }: { s: Stats; mine: number; max: number }) {
   const top = Math.max(1, ...s.dist);
   return (
     <Card>
-      <div className="grid grid-cols-3 divide-x divide-line rounded-xl border border-line">
+      <Kicker>Your stats</Kicker>
+      <div className="mt-2 grid grid-cols-4 divide-x divide-line rounded-xl border border-line">
         {[
           { label: "Played", value: String(s.played) },
           { label: "Solved", value: `${s.winPct}%` },
           { label: "Streak", value: String(s.streak) },
+          { label: "Best", value: String(s.best) },
         ].map((it) => (
           <div key={it.label} className="py-2 text-center">
             <div className="font-mono text-xl font-bold tabular">{it.value}</div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">{it.label}</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">{it.label}</div>
           </div>
         ))}
       </div>
-      <Kicker className="mt-4">How everyone did today</Kicker>
+      <Kicker className="mt-4">Your guesses</Kicker>
       <ul className="mt-2 space-y-1">
         {s.dist.map((n, i) => {
-          const you = mine === i;
+          const today = mine === i;
           return (
             <li key={i} className="flex items-center gap-2 font-mono text-xs">
-              <span className="w-4 text-right text-muted">{i < s.dist.length - 1 ? i + 1 : "X"}</span>
+              <span className="w-4 text-right text-muted">{i < max ? i + 1 : "X"}</span>
               <span className="relative h-5 flex-1">
                 <span
-                  className={`absolute inset-y-0 left-0 flex items-center justify-end rounded px-1.5 text-[10px] font-bold ${you ? "bg-accent text-accent-fg" : "bg-muted/30"}`}
+                  className={`absolute inset-y-0 left-0 flex items-center justify-end rounded px-1.5 text-[10px] font-bold ${today ? "bg-accent text-accent-fg" : "bg-muted/30"}`}
                   style={{ width: `${Math.max(8, (n / top) * 100)}%` }}
                 >
                   {n}
@@ -346,14 +399,29 @@ function StatsCard({ s, mine }: { s: Stats; mine: number | null }) {
           );
         })}
       </ul>
-      <p className="mt-2 text-xs text-muted">
-        {total.toLocaleString()} player{total === 1 ? "" : "s"} today
-      </p>
+      {s.recent.length > 1 && (
+        <>
+          <Kicker className="mt-4">Recent puzzles</Kicker>
+          <ul className="mt-2 divide-y divide-line">
+            {s.recent.map((p) => (
+              <li key={p.date} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0 truncate">
+                  <span className="font-mono text-xs text-muted">#{p.number}</span> {p.name}{" "}
+                  <span className="font-mono text-xs text-muted">{p.symbol}</span>
+                </span>
+                <span className={`shrink-0 font-mono text-xs font-semibold ${p.solved ? "text-up" : "text-down"}`}>
+                  {p.solved ? `${p.guesses}/${max}` : `X/${max}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </Card>
   );
 }
 
-export function Mystery({ companies }: { companies: [string, string][] }) {
+export function Mystery({ companies, bank }: { companies: [string, string][]; bank: [string, string][] }) {
   const [me, setMe] = useState<Identity | null>(null);
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [guesses, setGuesses] = useState<string[]>([]);
@@ -362,10 +430,17 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // The sector clue is optional: hidden unless you turn it on. The choice sticks on this device.
+  const [showSector, setShowSector] = useState(false);
 
   useEffect(() => {
     const id = loadIdentity();
     setMe(id);
+    try {
+      setShowSector(localStorage.getItem(SHOW_SECTOR) === "1");
+    } catch {
+      // Storage blocked: default to hidden.
+    }
     (async () => {
       try {
         const p = await api<Puzzle>("/api/mystery", { me: id });
@@ -418,6 +493,16 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
     if (r === "copied") flash("Copied. Paste it in the group chat.");
   }
 
+  function toggleSector() {
+    const next = !showSector;
+    setShowSector(next);
+    try {
+      localStorage.setItem(SHOW_SECTOR, next ? "1" : "0");
+    } catch {
+      // Storage blocked: the toggle still works for this visit.
+    }
+  }
+
   function flash(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
@@ -435,6 +520,7 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
 
   const rows = result?.rows ?? [];
   const hints = result?.hints ?? puzzle.hints;
+  const sector = hints.find((h) => h.label === "Sector")?.value ?? "";
   const done = !!result?.done;
   const left = puzzle.maxGuesses - rows.length;
   const nextIn = clock(msToNextPuzzle(now));
@@ -461,7 +547,7 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
             </p>
           </Card>
           <RevealCard r={result.reveal} bars={puzzle.chart} />
-          {result.stats && <StatsCard s={result.stats} mine={result.solved ? rows.length - 1 : puzzle.maxGuesses} />}
+          {result.stats && <StatsCard s={result.stats} mine={result.solved ? rows.length - 1 : puzzle.maxGuesses} max={puzzle.maxGuesses} />}
         </>
       )}
 
@@ -470,24 +556,41 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight">Name the mystery stock</h2>
             <p className="mt-1 text-sm text-muted">Which S&amp;P 500 company is behind this chart? {puzzle.maxGuesses} guesses.</p>
+            <p className="mt-1 text-sm text-muted">
+              The answer is always one of <span className="font-semibold text-fg">{bank.length} household names</span>, big
+              companies you&apos;d recognize.
+            </p>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2">
+            <span className="min-w-0 text-sm">
+              <span className="text-muted">Sector:</span>{" "}
+              {showSector ? <span className="font-semibold">{sector}</span> : <span className="text-muted">hidden</span>}
+            </span>
+            <button
+              onClick={toggleSector}
+              aria-pressed={showSector}
+              className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-xs active:bg-line/60"
+            >
+              {showSector ? "Hide" : "Show hint"}
+            </button>
           </div>
           <div className="mt-4">
             <Chart bars={puzzle.chart} />
           </div>
-          <ul className="mt-4 flex flex-wrap gap-1.5">
-            {hints.map((h) => (
+          <ul className="mt-4 flex flex-wrap gap-1.5 empty:hidden">
+            {hints.filter((h) => h.label !== "Sector").map((h) => (
               <li key={h.label} className="rounded-full border border-line px-3 py-1 text-sm">
                 <span className="text-muted">{h.label}:</span> <span className="font-semibold">{h.value}</span>
               </li>
             ))}
           </ul>
-          {rows.length < 5 && (
+          {rows.length < puzzle.maxGuesses - 1 && (
             <p className="mt-2 font-mono text-[11px] text-muted">
               Wrong guesses unlock more clues.
             </p>
           )}
           <div className="mt-4">
-            <Guesser companies={companies} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
+            <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
             <p className="mt-2 font-mono text-xs text-muted">
               {left} guess{left === 1 ? "" : "es"} left
             </p>
