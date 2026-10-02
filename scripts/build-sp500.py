@@ -20,6 +20,8 @@ SKIP = {"GOOG", "FOX", "NWS"}
 
 # Wikipedia gaps.
 HQ_OVERRIDES = {"XYZ": "Oakland, California"}
+# Wikipedia gives a merger or holding-company date where the familiar company is much older.
+FOUNDED_OVERRIDES = {"XOM": "1870", "DELL": "1984", "CVS": "1963", "TPR": "1941", "RCL": "1968"}
 
 
 def clean_name(name):
@@ -103,7 +105,8 @@ def main():
             missing.append(sym)
             continue
         hq = HQ_OVERRIDES.get(sym, r[4]["text"])
-        years = re.findall(r"\b(1[6-9]\d\d|20\d\d)\b", r[-1]["text"])
+        founded_text = FOUNDED_OVERRIDES.get(sym, r[-1]["text"])
+        years = re.findall(r"\b(1[6-9]\d\d|20\d\d)\b", founded_text)
         out.append({
             "symbol": sym,
             "name": clean_name(r[1]["text"]),
@@ -113,7 +116,7 @@ def main():
             "hq": hq,
             "state": hq.split(",")[-1].strip(),
             "founded": int(years[0]) if years else None,
-            "foundedText": r[-1]["text"],
+            "foundedText": founded_text,
             "shares": round(cap / price),
             "cap": round(cap),
         })

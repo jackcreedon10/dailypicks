@@ -1,6 +1,8 @@
 import companiesJson from "@/data/sp500.json";
 import { db, must } from "./db";
 import { GameError } from "./game";
+import { BRACKETS } from "./brackets";
+import { randomInt } from "node:crypto";
 import { addDays, etDate } from "./time";
 
 // Daily Tickr: guess the day's S&P 500 company from its 1-year chart, in 5 tries.
@@ -39,87 +41,68 @@ EBAY WM RL TPR CHTR`
   .split(/\s+/)
   .filter((s) => BY_SYMBOL.has(s));
 
-/** Deterministic shuffle so the order is fixed but not alphabetical. */
-function shuffled<T>(xs: T[], seed: number): T[] {
-  let a = seed >>> 0;
-  const rand = () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const out = [...xs];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
 const dayIndex = (date: string) => Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${FIRST_DAY}T12:00:00Z`)) / 86_400_000);
 
 export function puzzleNumber(date: string) {
   return dayIndex(date) + 1;
 }
 
-export function answerFor(date: string): Company {
-  const i = Math.max(0, dayIndex(date));
-  const cycle = Math.floor(i / ANSWER_POOL.length);
-  return BY_SYMBOL.get(shuffled(ANSWER_POOL, 20261002 + cycle)[i % ANSWER_POOL.length])!;
+/** No company repeats within this many days. */
+const NO_REPEAT_DAYS = 120;
+
+/**
+ * The day's answer. Picked at random the first time the day is played, then saved, so future answers can't be
+ * worked out from the (public) code and past answers never change. Practice days (local testing) get a
+ * throwaway pick that isn't saved, so testing never locks in a real future answer.
+ */
+export async function answerFor(date: string, practice = false): Promise<Company> {
+  if (practice) {
+    const h = [...`practice:${date}`].reduce((x, ch) => (Math.imul(x, 31) + ch.charCodeAt(0)) >>> 0, 7);
+    return BY_SYMBOL.get(ANSWER_POOL[h % ANSWER_POOL.length])!;
+  }
+  const saved = await savedAnswers([date]);
+  if (saved[date]) return saved[date];
+
+  const recent = (await db()
+    .from("puzzle_answers")
+    .select("symbol")
+    .lt("puzzle_date", date)
+    .order("puzzle_date", { ascending: false })
+    .limit(NO_REPEAT_DAYS)
+    .then(must)) as { symbol: string }[];
+  const used = new Set(recent.map((r) => r.symbol));
+  const fresh = ANSWER_POOL.filter((sym) => !used.has(sym));
+  const choices = fresh.length ? fresh : ANSWER_POOL;
+  const symbol = choices[randomInt(choices.length)];
+
+  // If another request picked first, theirs wins: re-read instead of overwriting.
+  const ins = await db().from("puzzle_answers").insert({ puzzle_date: date, symbol });
+  if (ins.error && ins.error.code !== "23505") throw new Error(ins.error.message);
+  return (await savedAnswers([date]))[date] ?? BY_SYMBOL.get(symbol)!;
+}
+
+/** Saved answers for the given days (days with no answer yet are left out). */
+async function savedAnswers(dates: string[]): Promise<Record<string, Company>> {
+  if (!dates.length) return {};
+  const rows = (await db().from("puzzle_answers").select("puzzle_date, symbol").in("puzzle_date", dates).then(must)) as {
+    puzzle_date: string;
+    symbol: string;
+  }[];
+  const out: Record<string, Company> = {};
+  for (const row of rows) {
+    const c = BY_SYMBOL.get(row.symbol);
+    if (!c) throw new Error(`Saved answer ${row.symbol} for ${row.puzzle_date} is no longer in the company list`);
+    out[row.puzzle_date] = c;
+  }
+  return out;
 }
 
 export const today = () => etDate(new Date());
 
-// ---------------------------------------------------------------------------
-// Guess feedback
-// ---------------------------------------------------------------------------
-
-/** match = right; close = near (same sector, same state, within 2x size or 15 years); miss = far off. */
-export type Mark = "match" | "close" | "miss";
-/** For size and founded: which way the answer is from your guess. */
-export type Dir = "up" | "down" | null;
-
-export type GuessRow = {
-  symbol: string;
-  name: string;
-  correct: boolean;
-  industry: { value: string; mark: Mark };
-  size: { value: number; mark: Mark; dir: Dir };
-  founded: { value: number; mark: Mark; dir: Dir };
-  hq: { value: string; mark: Mark };
-};
-
-export function compare(g: Company, a: Company): GuessRow {
-  const ratio = a.cap / g.cap;
-  const years = a.founded - g.founded;
-  return {
-    symbol: g.symbol,
-    name: g.name,
-    correct: g.symbol === a.symbol,
-    industry: { value: g.industry, mark: g.industry === a.industry ? "match" : g.sector === a.sector ? "close" : "miss" },
-    size: {
-      value: g.cap,
-      mark: ratio >= 0.8 && ratio <= 1.25 ? "match" : ratio >= 0.5 && ratio <= 2 ? "close" : "miss",
-      dir: ratio >= 0.8 && ratio <= 1.25 ? null : ratio > 1 ? "up" : "down",
-    },
-    founded: {
-      value: g.founded,
-      mark: years === 0 ? "match" : Math.abs(years) <= 15 ? "close" : "miss",
-      dir: years === 0 ? null : years > 0 ? "up" : "down",
-    },
-    hq: { value: g.hq, mark: g.hq === a.hq ? "match" : g.state === a.state ? "close" : "miss" },
-  };
-}
-
-/** Clues that unlock as wrong guesses pile up, so everyone can get there. */
-export function hints(a: Company, wrong: number) {
-  const out: { label: string; value: string }[] = [{ label: "Sector", value: a.sector }];
-  if (wrong >= 1) out.push({ label: "Industry", value: a.industry });
-  if (wrong >= 2) out.push({ label: "Headquarters", value: a.hq });
-  if (wrong >= 3) out.push({ label: "Founded", value: a.foundedText });
-  if (wrong >= 4) out.push({ label: "Starts with", value: `"${a.name[0]}" (ticker ${a.symbol[0]}…)` });
-  return out;
+/** Local testing only: play another day's puzzle with ?day=YYYY-MM-DD. Never allowed in production. */
+export function practiceDate(raw: unknown): string | null {
+  if (process.env.NODE_ENV === "production" || typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return raw;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +119,9 @@ export type Bar = { t: string; c: number };
 /** One year of daily closes up to the end of the day before the puzzle (fixed for the whole day). */
 export async function yearChart(symbol: string, date: string): Promise<Bar[]> {
   const start = addDays(date, -366);
-  const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Day&start=${start}&end=${date}T00:00:00Z&feed=sip&adjustment=all&limit=1000`;
+  // The free plan blocks full-market (SIP) data from the last 15 minutes, so never ask past 20 minutes ago.
+  const end = new Date(Math.min(Date.parse(`${date}T00:00:00Z`), Date.now() - 20 * 60_000)).toISOString();
+  const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=1Day&start=${start}&end=${end}&feed=sip&adjustment=all&limit=1000`;
   const res = await fetch(url, { headers: alpacaHeaders(), next: { revalidate: 6 * 3600 } });
   if (!res.ok) throw new Error(`Alpaca bars ${symbol}: ${res.status}`);
   const data = (await res.json()) as { bars?: { t: string; c: number }[] };
@@ -229,7 +214,7 @@ export async function reveal(a: Company, date: string) {
     sector: a.sector,
     industry: a.industry,
     hq: a.hq,
-    founded: a.foundedText,
+    founded: String(foundedYear(a)),
     about,
     price,
     asOf: snap?.asOf ?? null,
@@ -238,6 +223,7 @@ export async function reveal(a: Company, date: string) {
     low52: closes.length ? Math.min(...closes) : null,
     high52: closes.length ? Math.max(...closes) : null,
     marketCap: price ? a.shares * price : a.cap,
+    bracket: BRACKETS[bracketOf(a.cap)],
     /** Same year of daily closes for the S&P 500, for the "vs the market" chart. */
     market,
     news: headlines,
@@ -277,8 +263,10 @@ export async function stats(playerId: string, date: string) {
   const dist = Array.from({ length: MAX_GUESSES + 1 }, () => 0);
   for (const p of plays) dist[p.solved ? Math.min(p.guesses.length, MAX_GUESSES) - 1 : MAX_GUESSES]++;
 
-  const recent = plays.slice(0, 10).map((p) => {
-    const a = answerFor(p.puzzle_date);
+  const last = plays.slice(0, 10);
+  const answers = await savedAnswers(last.map((p) => p.puzzle_date));
+  const recent = last.filter((p) => answers[p.puzzle_date]).map((p) => {
+    const a = answers[p.puzzle_date];
     return { number: puzzleNumber(p.puzzle_date), date: p.puzzle_date, name: a.name, symbol: a.symbol, guesses: p.guesses.length, solved: p.solved };
   });
 
@@ -300,26 +288,81 @@ export function parseGuesses(raw: unknown): Company[] {
   return out;
 }
 
-/** Score a list of guesses. Once the puzzle is finished, records the play (first finish counts) and reveals. */
+// ---------------------------------------------------------------------------
+// Guess cards: industry, size, founded, HQ. Green only when it truly matches.
+// ---------------------------------------------------------------------------
+
+// Uses the stored market caps, so a company's bracket doesn't change from day to day.
+const bracketOf = (cap: number) => BRACKETS.findIndex((b) => cap >= b.min);
+
+/** Original founding year: Wikipedia lists e.g. "1983 (1877)" for companies re-formed later. */
+export const foundedYear = (c: Company) =>
+  Math.min(...(c.foundedText.match(/\b(1[6-9]\d\d|20\d\d)\b/g) ?? [String(c.founded)]).map(Number));
+
+const REGIONS: Record<string, string> = Object.fromEntries(
+  Object.entries({
+    Northeast: "Connecticut Maine Massachusetts New_Hampshire New_Jersey New_York Pennsylvania Rhode_Island Vermont",
+    Midwest: "Illinois Indiana Iowa Kansas Michigan Minnesota Missouri Nebraska North_Dakota Ohio South_Dakota Wisconsin",
+    South:
+      "Alabama Arkansas D.C. Delaware Florida Georgia Kentucky Louisiana Maryland Mississippi North_Carolina Oklahoma South_Carolina Tennessee Texas Virginia West_Virginia",
+    West: "Alaska Arizona California Colorado Hawaii Idaho Montana Nevada New_Mexico Oregon Utah Washington Wyoming",
+  }).flatMap(([region, states]) => states.split(" ").map((st) => [st.replace(/_/g, " "), region])),
+);
+/** US region for a state; anywhere outside the US counts as one "International" region. */
+const regionOf = (state: string) => REGIONS[state] ?? "International";
+
+/** match = green, close = yellow, miss = grey. dir: which way the answer is (size and founded only). */
+export type Mark = "match" | "close" | "miss";
+export type Card = { value: string; mark: Mark; dir?: "up" | "down" | null };
+export type GuessCards = { industry: Card; size: Card; founded: Card; hq: Card };
+
+/** Same/one-off/further on an ordered scale, with an arrow toward the answer. */
+function scale(guess: number, answer: number, value: string): Card {
+  const gap = Math.abs(guess - answer);
+  return { value, mark: gap === 0 ? "match" : gap === 1 ? "close" : "miss", dir: gap === 0 ? null : answer > guess ? "up" : "down" };
+}
+
+export function cards(g: Company, a: Company): GuessCards {
+  const gb = bracketOf(g.cap), ab = bracketOf(a.cap);
+  const gd = Math.floor(foundedYear(g) / 10), ad = Math.floor(foundedYear(a) / 10);
+  return {
+    industry: { value: g.industry, mark: g.industry === a.industry ? "match" : g.sector === a.sector ? "close" : "miss" },
+    // Brackets are listed biggest first, so a lower index means bigger: flip for the arrow.
+    size: scale(-gb, -ab, BRACKETS[gb].label),
+    founded: scale(gd, ad, `${gd * 10}s`),
+    hq: { value: g.state, mark: g.state === a.state ? "match" : regionOf(g.state) === regionOf(a.state) ? "close" : "miss" },
+  };
+}
+
+export type GuessResult = { symbol: string; name: string; correct: boolean; cards: GuessCards };
+
+/** Check a list of guesses: right or wrong, plus the four cards. Once finished, records the play (first finish counts) and reveals. */
 export async function play(playerId: string, date: string, rawGuesses: unknown) {
-  if (date !== today()) throw new GameError("A new puzzle is out. Refresh to play it.", 409);
-  const answer = answerFor(date);
+  const practice = date !== today() && practiceDate(date) === date;
+  if (date !== today() && !practice) throw new GameError("A new puzzle is out. Refresh to play it.", 409);
+  const answer = await answerFor(date, practice);
   const guesses = parseGuesses(rawGuesses);
   const solvedAt = guesses.findIndex((g) => g.symbol === answer.symbol);
   if (solvedAt >= 0 && solvedAt < guesses.length - 1) throw new GameError("The puzzle was already solved");
-  const rows = guesses.map((g) => compare(g, answer));
+  const results: GuessResult[] = guesses.map((g) => ({
+    symbol: g.symbol,
+    name: g.name,
+    correct: g.symbol === answer.symbol,
+    cards: cards(g, answer),
+  }));
   const solved = solvedAt >= 0;
   const done = solved || guesses.length === MAX_GUESSES;
-  const wrong = guesses.length - (solved ? 1 : 0);
 
-  if (!done) return { rows, hints: hints(answer, wrong), done, solved, reveal: null, stats: null };
+  if (!done) return { guesses: results, done, solved, reveal: null, stats: null };
 
-  // First finish counts; a replay from another device keeps the original result.
-  const ins = await db()
-    .from("mystery_plays")
-    .insert({ puzzle_date: date, player_id: playerId, guesses: guesses.map((g) => g.symbol), solved });
-  if (ins.error && ins.error.code !== "23505") throw new Error(ins.error.message);
+  // First finish counts; a replay from another device keeps the original result. Practice games aren't saved.
+  if (!practice) {
+    const ins = await db()
+      .from("mystery_plays")
+      .insert({ puzzle_date: date, player_id: playerId, guesses: guesses.map((g) => g.symbol), solved });
+    if (ins.error && ins.error.code !== "23505") throw new Error(ins.error.message);
+  }
 
   const [rev, st] = await Promise.all([reveal(answer, date), stats(playerId, date)]);
-  return { rows, hints: hints(answer, wrong), done, solved, reveal: rev, stats: st };
+  return { guesses: results, done, solved, reveal: rev, stats: st };
 }

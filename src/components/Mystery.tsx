@@ -2,10 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, clock, loadIdentity, pct, saveIdentity, shareText, tone, type Identity } from "@/lib/client";
-import type { Bar, GuessRow, Mark, Reveal } from "@/lib/mystery";
+import { BRACKETS, SECTOR_MEANING } from "@/lib/brackets";
+import type { Bar, GuessResult, Mark, Reveal } from "@/lib/mystery";
 
-type Hint = { label: string; value: string };
-type Puzzle = { date: string; number: number; maxGuesses: number; chart: Bar[]; hints: Hint[]; finishedGuesses: string[] | null };
+type Puzzle = {
+  date: string;
+  number: number;
+  maxGuesses: number;
+  chart: Bar[];
+  sector: string;
+  finishedGuesses: string[] | null;
+  streak: number;
+  played: number;
+};
 type Stats = {
   played: number;
   winPct: number;
@@ -14,7 +23,7 @@ type Stats = {
   dist: number[];
   recent: { number: number; date: string; name: string; symbol: string; guesses: number; solved: boolean }[];
 };
-type Result = { rows: GuessRow[]; hints: Hint[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
+type Result = { guesses: GuessResult[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
 
 const saved = (date: string) => `mystery.${date}`;
 const SHOW_SECTOR = "tickr.showSector";
@@ -59,12 +68,44 @@ function msToNextPuzzle(now: number): number {
   return (86_400 - (p.hour * 3600 + p.minute * 60 + p.second)) * 1000;
 }
 
-const SQUARE: Record<Mark, string> = { match: "🟩", close: "🟨", miss: "⬛" };
+const SQUARE: Record<Mark, string> = { match: "🟩", close: "🟨", miss: "⬜" };
+
+const CARD_ORDER = ["industry", "size", "founded", "hq"] as const;
+const CARD_LABEL = { industry: "Industry", size: "Size", founded: "Founded", hq: "HQ" } as const;
+
+/** One row of four squares per guess, Wordle style, for the result and share text. */
+const grid = (gs: GuessResult[]) => gs.map((g) => CARD_ORDER.map((k) => SQUARE[g.cards[k].mark]).join("")).join("\n");
+
 const TILE: Record<Mark, string> = {
   match: "bg-up text-white",
   close: "bg-amber-400 text-black",
   miss: "bg-line text-fg",
 };
+
+function GuessRow({ g }: { g: GuessResult }) {
+  const arrow = (d?: "up" | "down" | null) => (d === "up" ? " ↑" : d === "down" ? " ↓" : "");
+  return (
+    <li>
+      <div className="mb-1 flex items-baseline justify-between gap-2 text-sm">
+        <span className="min-w-0 truncate font-semibold">
+          {g.correct ? <span className="mr-1.5 text-up">✓</span> : <span className="mr-1.5 font-mono text-xs text-down">✗</span>}
+          {g.name}
+        </span>
+        <span className="font-mono text-xs text-muted">{g.symbol}</span>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {CARD_ORDER.map((k) => (
+          <div key={k} className={`flex min-h-12 items-center justify-center rounded-lg px-1 py-1.5 text-center ${TILE[g.cards[k].mark]}`}>
+            <span className="line-clamp-2 text-[11px] font-semibold leading-tight [overflow-wrap:anywhere]">
+              {g.cards[k].value}
+              {arrow(g.cards[k].dir)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </li>
+  );
+}
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>{children}</section>;
@@ -165,32 +206,6 @@ function VsMarket({ symbol, stock, market }: { symbol: string; stock: Bar[]; mar
         &quot;own the market&quot;, so it&apos;s the yardstick for any single stock.
       </p>
     </div>
-  );
-}
-
-function Row({ r }: { r: GuessRow }) {
-  const arrow = (d: "up" | "down" | null) => (d === "up" ? " ↑" : d === "down" ? " ↓" : "");
-  const state = r.hq.value.split(",").at(-1)!.trim();
-  const tiles: { mark: Mark; text: string; label: string }[] = [
-    { mark: r.industry.mark, text: r.industry.value, label: "Industry" },
-    { mark: r.size.mark, text: capLabel(r.size.value) + arrow(r.size.dir), label: "Size" },
-    { mark: r.founded.mark, text: r.founded.value + arrow(r.founded.dir), label: "Founded" },
-    { mark: r.hq.mark, text: state, label: "HQ" },
-  ];
-  return (
-    <li>
-      <div className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="truncate font-semibold">{r.name}</span>
-        <span className="font-mono text-xs text-muted">{r.symbol}</span>
-      </div>
-      <div className="grid grid-cols-4 gap-1.5">
-        {tiles.map((t) => (
-          <div key={t.label} className={`flex min-h-12 flex-col items-center justify-center rounded-lg px-1 py-1.5 text-center ${TILE[t.mark]}`}>
-            <span className="line-clamp-2 text-[11px] font-semibold leading-tight [overflow-wrap:anywhere]">{t.text}</span>
-          </div>
-        ))}
-      </div>
-    </li>
   );
 }
 
@@ -322,7 +337,11 @@ function RevealCard({ r, bars }: { r: Reveal; bars: Bar[] }) {
           note={r.dayChange == null ? "The price of one share." : `${pct(r.dayChange)} today. The price of one share right now.`}
           valueClass={r.dayChange == null ? "" : tone(r.dayChange)}
         />
-        <Fact label="Market cap" value={capLabel(r.marketCap)} note="What the whole company is worth: share price × all its shares." />
+        <Fact
+          label="Market cap"
+          value={capLabel(r.marketCap)}
+          note={`What the whole company is worth: share price × all its shares. Size: ${r.bracket.label} (${r.bracket.range}).`}
+        />
         <Fact
           label="Past year"
           value={r.yearChange == null ? "--" : pct(r.yearChange, 1)}
@@ -426,11 +445,12 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [guesses, setGuesses] = useState<string[]>([]);
   const [result, setResult] = useState<Result | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  // The sector clue is optional: hidden unless you turn it on. The choice sticks on this device.
+  // The sector hint is optional: hidden unless you turn it on. The choice sticks on this device.
   const [showSector, setShowSector] = useState(false);
 
   useEffect(() => {
@@ -443,12 +463,15 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     }
     (async () => {
       try {
-        const p = await api<Puzzle>("/api/mystery", { me: id });
+        const day = new URLSearchParams(location.search).get("day"); // local testing only; ignored in production
+        const p = await api<Puzzle>(`/api/mystery${day ? `?day=${encodeURIComponent(day)}` : ""}`, { me: id });
         setPuzzle(p);
         const g = p.finishedGuesses ?? loadGuesses(p.date);
         if (g.length && id) {
           setGuesses(g);
-          setResult(await api<Result>("/api/mystery/guess", { method: "POST", body: { date: p.date, guesses: g }, me: id }));
+          const r = await api<Result>("/api/mystery/guess", { method: "POST", body: { date: p.date, guesses: g }, me: id });
+          setResult(r);
+          if (!r.done) setPlaying(true); // mid-game: skip the home screen
         }
       } catch (e) {
         setError((e as Error).message);
@@ -477,7 +500,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
       setGuesses(next);
       storeGuesses(puzzle.date, next);
       setResult(r);
-      if (r.done) setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 100);
+      if (r.done) window.scrollTo({ top: 0 });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -487,9 +510,8 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
 
   async function share() {
     if (!puzzle || !result) return;
-    const score = result.solved ? `${result.rows.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`;
-    const grid = result.rows.map((r) => [r.industry, r.size, r.founded, r.hq].map((c) => SQUARE[c.mark]).join("")).join("\n");
-    const r = await shareText(`Daily Tickr #${puzzle.number} · ${score}\n${grid}`, location.origin);
+    const score = result.solved ? `${result.guesses.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`;
+    const r = await shareText(`Daily Tickr #${puzzle.number} · ${score}\n${grid(result.guesses)}`, location.origin);
     if (r === "copied") flash("Copied. Paste it in the group chat.");
   }
 
@@ -511,118 +533,138 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   if (!puzzle) {
     return (
       <Shell>
-        <Card>
-          <p className="text-sm text-muted">{error ? `Couldn't load today's puzzle: ${error}` : "Loading..."}</p>
-        </Card>
+        <p className="mt-24 text-center text-sm text-muted">{error ? `Couldn't load today's puzzle: ${error}` : "Loading..."}</p>
       </Shell>
     );
   }
 
-  const rows = result?.rows ?? [];
-  const hints = result?.hints ?? puzzle.hints;
-  const sector = hints.find((h) => h.label === "Sector")?.value ?? "";
+  const tried = result?.guesses ?? [];
   const done = !!result?.done;
-  const left = puzzle.maxGuesses - rows.length;
+  const left = puzzle.maxGuesses - tried.length;
   const nextIn = clock(msToNextPuzzle(now));
+  const toast_ = toast && (
+    <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-fg px-4 py-2 text-center text-sm text-bg shadow-lg">
+      {toast}
+    </div>
+  );
 
-  return (
-    <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
-      {done && result?.reveal && (
-        <>
-          <Card className="text-center">
-            <Kicker>{result.solved ? "You got it" : "So close"}</Kicker>
-            <div className="mt-1 text-4xl font-bold">
-              {result.solved ? `${rows.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`}
-            </div>
-            <div className="mt-2 font-mono text-lg leading-tight tracking-wider">
-              {rows.map((r) => (
-                <div key={r.symbol}>{[r.industry, r.size, r.founded, r.hq].map((c) => SQUARE[c.mark]).join("")}</div>
-              ))}
-            </div>
-            <button onClick={share} className="mt-4 w-full rounded-full bg-accent py-3.5 font-semibold text-accent-fg active:scale-[0.99]">
-              Share result
-            </button>
-            <p className="mt-3 font-mono text-xs text-muted">
-              Next mystery stock in <span className="text-fg tabular">{nextIn}</span>
-            </p>
-          </Card>
-          <RevealCard r={result.reveal} bars={puzzle.chart} />
-          {result.stats && <StatsCard s={result.stats} mine={result.solved ? rows.length - 1 : puzzle.maxGuesses} max={puzzle.maxGuesses} />}
-        </>
-      )}
-
-      {!done && (
-        <Card>
-          <div className="text-center">
-            <h2 className="text-2xl font-bold tracking-tight">Name the mystery stock</h2>
-            <p className="mt-1 text-sm text-muted">Which S&amp;P 500 company is behind this chart? {puzzle.maxGuesses} guesses.</p>
-            <p className="mt-1 text-sm text-muted">
-              The answer is always one of <span className="font-semibold text-fg">{bank.length} household names</span>, big
-              companies you&apos;d recognize.
-            </p>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2">
-            <span className="min-w-0 text-sm">
-              <span className="text-muted">Sector:</span>{" "}
-              {showSector ? <span className="font-semibold">{sector}</span> : <span className="text-muted">hidden</span>}
-            </span>
-            <button
-              onClick={toggleSector}
-              aria-pressed={showSector}
-              className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-xs active:bg-line/60"
-            >
-              {showSector ? "Hide" : "Show hint"}
-            </button>
-          </div>
-          <div className="mt-4">
-            <Chart bars={puzzle.chart} />
-          </div>
-          <ul className="mt-4 flex flex-wrap gap-1.5 empty:hidden">
-            {hints.filter((h) => h.label !== "Sector").map((h) => (
-              <li key={h.label} className="rounded-full border border-line px-3 py-1 text-sm">
-                <span className="text-muted">{h.label}:</span> <span className="font-semibold">{h.value}</span>
-              </li>
+  // Home: one screen, one button.
+  if (!done && !playing) {
+    return (
+      <Shell>
+        <div className="flex flex-1 flex-col items-center justify-center py-10 text-center">
+          <div className="flex gap-1.5" aria-hidden="true">
+            {["bg-down", "bg-down", "bg-up"].map((c, i) => (
+              <span key={i} className={`h-4 w-4 rounded ${c}`} />
             ))}
-          </ul>
-          {rows.length < puzzle.maxGuesses - 1 && (
-            <p className="mt-2 font-mono text-[11px] text-muted">
-              Wrong guesses unlock more clues.
-            </p>
-          )}
-          <div className="mt-4">
-            <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
-            <p className="mt-2 font-mono text-xs text-muted">
-              {left} guess{left === 1 ? "" : "es"} left
-            </p>
-            {error && <p className="mt-2 text-sm text-down">{error}</p>}
           </div>
-        </Card>
-      )}
+          <h1 className="mt-5 text-4xl font-bold tracking-tight">Daily Tickr</h1>
+          <p className="mt-2 font-mono text-sm text-muted">
+            #{puzzle.number} · {shortDate(puzzle.date)}
+          </p>
+          <p className="mt-6 max-w-xs text-lg leading-snug">Guess the mystery stock from its chart.</p>
+          <ul className="mt-4 space-y-1 font-mono text-sm text-muted">
+            <li>{puzzle.maxGuesses} guesses</li>
+            <li>{bank.length} household names</li>
+            <li>a new stock every day</li>
+          </ul>
+          <button
+            onClick={() => {
+              setPlaying(true);
+              window.scrollTo({ top: 0 });
+            }}
+            className="mt-8 w-full max-w-xs rounded-full bg-accent py-4 text-lg font-semibold text-accent-fg active:scale-[0.99]"
+          >
+            {tried.length ? "Keep playing" : "Play"}
+          </button>
+          {puzzle.streak > 0 && <p className="mt-4 font-mono text-sm text-muted">🔥 {puzzle.streak} day streak</p>}
+        </div>
+      </Shell>
+    );
+  }
 
-      {rows.length > 0 && (
-        <Card>
-          <div className="mb-3 grid grid-cols-4 gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
-            <span>Industry</span>
-            <span>Size</span>
-            <span>Founded</span>
-            <span>HQ</span>
+  // Results: score and share first, then the lesson, then your stats.
+  if (done && result?.reveal) {
+    return (
+      <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
+        <Card className="text-center">
+          <Kicker>{result.solved ? "You got it" : "Not today"}</Kicker>
+          <div className="mt-1 text-5xl font-bold tabular">
+            {result.solved ? `${tried.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`}
           </div>
-          <ul className="space-y-3">
-            {[...rows].reverse().map((r) => (
-              <Row key={r.symbol} r={r} />
-            ))}
-          </ul>
-          <p className="mt-3 text-xs leading-relaxed text-muted">
-            🟩 right · 🟨 close (same sector, same state, within 2× the size or 15 years) · ↑↓ the answer is bigger/later or smaller/earlier
+          <div className="mt-2 whitespace-pre font-mono text-lg leading-tight tracking-wider">{grid(tried)}</div>
+          <button onClick={share} className="mt-5 w-full rounded-full bg-accent py-3.5 font-semibold text-accent-fg active:scale-[0.99]">
+            Share result
+          </button>
+          <p className="mt-3 font-mono text-xs text-muted">
+            Next stock in <span className="text-fg tabular">{nextIn}</span>
           </p>
         </Card>
-      )}
+        <RevealCard r={result.reveal} bars={puzzle.chart} />
+        {result.stats && <StatsCard s={result.stats} mine={result.solved ? tried.length - 1 : puzzle.maxGuesses} max={puzzle.maxGuesses} />}
+        {toast_}
+      </Shell>
+    );
+  }
 
-      {toast && (
-        <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-fg px-4 py-2 text-center text-sm text-bg shadow-lg">
-          {toast}
+  // Playing: chart, optional sector hint, your misses, and the guess box.
+  return (
+    <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
+      <Card>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold">Name the mystery stock</h2>
+          <div className="flex gap-1" aria-label={`${left} of ${puzzle.maxGuesses} guesses left`}>
+            {Array.from({ length: puzzle.maxGuesses }, (_, i) => (
+              <span key={i} className={`h-2.5 w-2.5 rounded-full ${i < tried.length ? "bg-down" : "bg-line"}`} />
+            ))}
+          </div>
         </div>
-      )}
+        <div className="mt-4">
+          <Chart bars={puzzle.chart} />
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+          <span className="min-w-0">
+            <span className="text-muted">Sector:</span>{" "}
+            {showSector ? <span className="font-semibold">{puzzle.sector}</span> : <span className="text-muted">hidden</span>}
+          </span>
+          <button
+            onClick={toggleSector}
+            aria-pressed={showSector}
+            className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-xs active:bg-line/60"
+          >
+            {showSector ? "Hide" : "Show hint"}
+          </button>
+        </div>
+        {showSector && SECTOR_MEANING[puzzle.sector] && (
+          <p className="mt-1 text-xs leading-snug text-muted">{SECTOR_MEANING[puzzle.sector]}.</p>
+        )}
+        {tried.length > 0 && (
+          <>
+            <div className="mt-4 grid grid-cols-4 gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+              {CARD_ORDER.map((k) => (
+                <span key={k}>{CARD_LABEL[k]}</span>
+              ))}
+            </div>
+            <ul className="mt-2 space-y-3">
+              {tried.map((g) => (
+                <GuessRow key={g.symbol} g={g} />
+              ))}
+            </ul>
+            <div className="mt-3 space-y-1 text-[11px] leading-snug text-muted">
+              <p>🟩 match · 🟨 close · ⬜ off · arrows point to the answer</p>
+              <p>
+                🟨 means same sector, one size or one decade off, or same US region.{" "}
+                <span className="font-mono">{BRACKETS.map((b) => `${b.label} ${b.range.replace("under ", "<")}`).join(" · ")}</span>
+              </p>
+            </div>
+          </>
+        )}
+        <div className="mt-4">
+          <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
+          {error && <p className="mt-2 text-sm text-down">{error}</p>}
+        </div>
+      </Card>
+      {toast_}
     </Shell>
   );
 }
@@ -630,12 +672,14 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
 function Shell({ children, header }: { children: React.ReactNode; header?: string }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))]">
-      <header className="flex items-center justify-between rounded-xl border border-line bg-card px-3 py-2">
-        <h1 className="font-mono text-base font-bold tracking-tight">DAILY TICKR</h1>
-        <span className="font-mono text-xs text-muted">{header}</span>
-      </header>
+      {header && (
+        <header className="flex items-center justify-between px-1 py-1">
+          <span className="font-mono text-base font-bold tracking-tight">DAILY TICKR</span>
+          <span className="font-mono text-xs text-muted">{header}</span>
+        </header>
+      )}
       {children}
-      <footer className="mt-4 text-center text-xs text-muted">A game, not investment advice. Prices may be delayed.</footer>
+      <footer className="mt-auto pt-6 text-center text-xs text-muted">A game, not investment advice. Prices may be delayed.</footer>
     </main>
   );
 }
