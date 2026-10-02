@@ -514,7 +514,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   async function share() {
     if (!puzzle || !result) return;
     const score = result.solved ? `${result.guesses.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`;
-    const r = await shareText(`Daily Tickr #${puzzle.number} · ${score}\n${grid(result.guesses)}`, location.origin);
+    const r = await shareText(`Tickr Guesser #${puzzle.number} · ${score}\n${grid(result.guesses)}`, location.origin);
     if (r === "copied") flash("Copied. Paste it in the group chat.");
   }
 
@@ -561,7 +561,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
               <span key={i} className={`h-4 w-4 rounded ${c}`} />
             ))}
           </div>
-          <h1 className="mt-5 text-4xl font-bold tracking-tight">Daily Tickr</h1>
+          <h1 className="mt-5 text-4xl font-bold tracking-tight">Tickr Guesser</h1>
           <p className="mt-2 font-mono text-sm text-muted">
             #{puzzle.number} · {shortDate(puzzle.date)}
           </p>
@@ -679,7 +679,7 @@ function Shell({ children, header }: { children: React.ReactNode; header?: strin
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-3 pb-[max(4rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[max(1rem,env(safe-area-inset-top))]">
       {header && (
         <header className="flex items-center justify-between px-1 py-1">
-          <span className="font-mono text-base font-bold tracking-tight">DAILY TICKR</span>
+          <span className="font-mono text-base font-bold tracking-tight">TICKR GUESSER</span>
           <span className="font-mono text-xs text-muted">{header}</span>
         </header>
       )}

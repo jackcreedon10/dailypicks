@@ -1,4 +1,4 @@
-"""Build src/data/sp500.json: the S&P 500 companies used by Daily Tickr.
+"""Build src/data/sp500.json: the S&P 500 companies used by Tickr Guesser.
 
 Sources: Wikipedia's "List of S&P 500 companies" (sector, industry, headquarters, founded) and
 Nasdaq's stock screener (market cap, used to derive share counts so size can track live prices).
@@ -11,7 +11,7 @@ import re
 import urllib.request
 from html.parser import HTMLParser
 
-UA_WIKI = "DailyTickr/1.0 (jackcreedon12@gmail.com)"
+UA_WIKI = "TickrGuesser/1.0 (jackcreedon12@gmail.com)"
 UA_BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128 Safari/537.36"
 OUT = "src/data/sp500.json"
 

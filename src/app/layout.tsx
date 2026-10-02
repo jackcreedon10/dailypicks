@@ -13,10 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Daily Tickr",
+  title: "Tickr Guesser",
   description: "Guess the mystery S&P 500 company from its stock chart. A new one every day.",
-  applicationName: "Daily Tickr",
-  appleWebApp: { capable: true, title: "Daily Tickr", statusBarStyle: "default" },
+  applicationName: "Tickr Guesser",
+  // iOS home-screen labels cut off around 12 characters, so the icon keeps the short name.
+  appleWebApp: { capable: true, title: "Tickr", statusBarStyle: "default" },
   formatDetection: { telephone: false },
 };
 

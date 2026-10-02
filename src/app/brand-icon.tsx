@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-/** The Daily Tickr app icon: a bold "T" over three guess tiles (right, close, miss). */
+/** The Tickr Guesser app icon: a bold "T" over three guess tiles (right, close, miss). */
 export function brandIcon(size: number, rounded: boolean) {
   const bar = Math.round(size * 0.09);
   return new ImageResponse(

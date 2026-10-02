@@ -1,4 +1,4 @@
-// Company size brackets for Daily Tickr, biggest first. Shared by the server and the browser.
+// Company size brackets for Tickr Guesser, biggest first. Shared by the server and the browser.
 export const BRACKETS = [
   { label: "Mega", range: "$500B+", min: 500e9 },
   { label: "Large", range: "$200–500B", min: 200e9 },

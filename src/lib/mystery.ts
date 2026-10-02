@@ -5,7 +5,7 @@ import { BRACKETS } from "./brackets";
 import { randomInt } from "node:crypto";
 import { addDays, etDate } from "./time";
 
-// Daily Tickr: guess the day's S&P 500 company from its 1-year chart, in 5 tries.
+// Tickr Guesser: guess the day's S&P 500 company from its 1-year chart, in 5 tries.
 // The answer never leaves the server until the puzzle is finished.
 
 export type Company = {
@@ -175,7 +175,7 @@ async function news(symbol: string, name: string): Promise<{ headline: string; u
 async function wikiSummary(title: string | null): Promise<string | null> {
   if (!title) return null;
   const res = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${title}`, {
-    headers: { "user-agent": "DailyTickr/1.0 (jackcreedon12@gmail.com)" },
+    headers: { "user-agent": "TickrGuesser/1.0 (jackcreedon12@gmail.com)" },
     next: { revalidate: 7 * 86_400 },
   });
   if (!res.ok) return null;
