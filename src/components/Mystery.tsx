@@ -25,7 +25,8 @@ type Stats = {
 };
 type Result = { guesses: GuessResult[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
 
-const saved = (date: string) => `mystery.${date}`;
+// Bump the version to make every device forget its saved guesses (e.g. after clearing plays from the database).
+const saved = (date: string) => `tickr.v2.${date}`;
 const SHOW_SECTOR = "tickr.showSector";
 
 function loadGuesses(date: string): string[] {
@@ -679,7 +680,6 @@ function Shell({ children, header }: { children: React.ReactNode; header?: strin
         </header>
       )}
       {children}
-      <footer className="mt-auto pt-6 text-center text-xs text-muted">A game, not investment advice. Prices may be delayed.</footer>
     </main>
   );
 }
