@@ -117,7 +117,7 @@ function Kicker({ children, className = "" }: { children: React.ReactNode; class
 }
 
 /** 1-year price chart. Unlabeled during play; the reveal passes the company name. */
-function Chart({ bars }: { bars: Bar[] }) {
+function Chart({ bars, compact = false }: { bars: Bar[]; compact?: boolean }) {
   if (bars.length < 2) return <div className="h-36 rounded-xl bg-line/40" />;
   const W = 320, H = 140, P = 4;
   const closes = bars.map((b) => b.c);
@@ -130,10 +130,12 @@ function Chart({ bars }: { bars: Bar[] }) {
   return (
     <div>
       <div className="flex justify-between font-mono text-[11px] text-muted tabular">
-        <span>High {usd(hi)}</span>
+        <span>
+          High {usd(hi)} · Low {usd(lo)}
+        </span>
         <span className={up ? "text-up" : "text-down"}>{pct(closes.at(-1)! / closes[0] - 1, 1)} in a year</span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-1 h-36 w-full" preserveAspectRatio="none" role="img" aria-label="One-year stock chart">
+      <svg viewBox={`0 0 ${W} ${H}`} className={`mt-1 w-full ${compact ? "h-28" : "h-36"}`} preserveAspectRatio="none" role="img" aria-label="One-year stock chart">
         <defs>
           <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor={color} stopOpacity="0.25" />
@@ -147,7 +149,6 @@ function Chart({ bars }: { bars: Bar[] }) {
         <span>
           {month(bars[0].t)} · {usd(closes[0])}
         </span>
-        <span>Low {usd(lo)}</span>
         <span>
           {month(bars.at(-1)!.t)} · {usd(closes.at(-1)!)}
         </span>
@@ -197,10 +198,10 @@ function VsMarket({ symbol, stock, market }: { symbol: string; stock: Bar[]; mar
       </div>
       <p className="mt-2 text-sm leading-snug">
         {gap === 0
-          ? `${symbol} moved in line with the market this year.`
+          ? `${symbol} moved in line with the market over the last year.`
           : gap > 0
-            ? `${symbol} beat the market by ${gap} percentage point${gap === 1 ? "" : "s"} this year.`
-            : `${symbol} trailed the market by ${-gap} percentage point${gap === -1 ? "" : "s"} this year.`}
+            ? `${symbol} beat the market by ${gap} percentage point${gap === 1 ? "" : "s"} over the last year.`
+            : `${symbol} trailed the market by ${-gap} percentage point${gap === -1 ? "" : "s"} over the last year.`}
       </p>
       <p className="mt-1 text-xs leading-snug text-muted">
         The S&amp;P 500 tracks 500 of the biggest US companies. Buying a fund that holds all of them is the simplest way to
@@ -256,13 +257,13 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
         return { sym, name, score };
       })
       .filter((m) => m.score >= 0);
-    return scored.sort((a, b) => a.score - b.score).slice(0, 6);
+    return scored.sort((a, b) => a.score - b.score).slice(0, 4);
   }, [q, companies, taken]);
 
   function pick(sym: string) {
     setQ("");
     onGuess(sym);
-    input.current?.focus();
+    input.current?.focus({ preventScroll: true });
   }
 
   return (
@@ -276,17 +277,19 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
           disabled={disabled}
           type="search"
           inputMode="search"
+          name="tickr-guess"
+          enterKeyHint="go"
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="Guess a company: Nike, AAPL..."
+          placeholder="Type a stock name or ticker"
           className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
         />
         {matches.length > 0 && (
           <ul className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-line bg-card shadow-lg">
             {matches.map((m) => (
               <li key={m.sym}>
-                <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left active:bg-line/60">
+                <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
                   <span className="truncate">{m.name}</span>
                   <span className="font-mono text-xs text-muted">{m.sym}</span>
                 </button>
@@ -300,8 +303,7 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
         taken={taken}
         onPick={(name) => {
           setQ(name);
-          input.current?.focus();
-          input.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+          input.current?.focus({ preventScroll: true });
         }}
       />
     </div>
@@ -608,7 +610,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     );
   }
 
-  // Playing: chart, optional sector hint, your misses, and the guess box.
+  // Playing: chart, the guess box, the optional sector hint, then your guesses (newest first).
   return (
     <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
       <Card>
@@ -620,8 +622,14 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
             ))}
           </div>
         </div>
-        <div className="mt-4">
-          <Chart bars={puzzle.chart} />
+        {/* The guess box sits right under the chart so it's already above the phone keyboard:
+            Safari then has no reason to scroll the chart away while you type. */}
+        <div className="mt-3">
+          <Chart bars={puzzle.chart} compact />
+        </div>
+        <div className="mt-3">
+          <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
+          {error && <p className="mt-2 text-sm text-down">{error}</p>}
         </div>
         <div className="mt-4 flex items-center justify-between gap-3 text-sm">
           <span className="min-w-0">
@@ -647,7 +655,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
               ))}
             </div>
             <ul className="mt-2 space-y-3">
-              {tried.map((g) => (
+              {[...tried].reverse().map((g) => (
                 <GuessRow key={g.symbol} g={g} />
               ))}
             </ul>
@@ -660,10 +668,6 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
             </div>
           </>
         )}
-        <div className="mt-4">
-          <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
-          {error && <p className="mt-2 text-sm text-down">{error}</p>}
-        </div>
       </Card>
       {toast_}
     </Shell>
