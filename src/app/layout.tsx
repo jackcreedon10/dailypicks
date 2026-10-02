@@ -13,10 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pick 3",
-  description: "Pick 3 stocks before the bell. Watch them all day. Beat your friends.",
-  applicationName: "Pick 3",
-  appleWebApp: { capable: true, title: "Pick 3", statusBarStyle: "default" },
+  title: "Daily Tickr",
+  description: "Guess the mystery S&P 500 company from its stock chart. A new one every day.",
+  applicationName: "Daily Tickr",
+  appleWebApp: { capable: true, title: "Daily Tickr", statusBarStyle: "default" },
   formatDetection: { telephone: false },
 };
 

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-/** The Pick 3 app icon: a bold "3" over three bars in the stock colors. */
+/** The Daily Tickr app icon: a bold "T" over three guess tiles (right, close, miss). */
 export function brandIcon(size: number, rounded: boolean) {
   const bar = Math.round(size * 0.09);
   return new ImageResponse(
@@ -18,10 +18,10 @@ export function brandIcon(size: number, rounded: boolean) {
           color: "white",
         }}
       >
-        <div style={{ fontSize: size * 0.56, fontWeight: 800, lineHeight: 1, marginTop: -size * 0.04 }}>3</div>
+        <div style={{ fontSize: size * 0.56, fontWeight: 800, lineHeight: 1, marginTop: -size * 0.04 }}>T</div>
         <div style={{ display: "flex", gap: size * 0.04, marginTop: size * 0.05 }}>
-          {["#ffffff", "#fbbf24", "#2dd4bf"].map((c) => (
-            <div key={c} style={{ width: size * 0.16, height: bar, borderRadius: bar, background: c }} />
+          {["#22c55e", "#fbbf24", "#e5e7eb"].map((c) => (
+            <div key={c} style={{ width: size * 0.16, height: size * 0.16, borderRadius: bar / 2, background: c }} />
           ))}
         </div>
       </div>

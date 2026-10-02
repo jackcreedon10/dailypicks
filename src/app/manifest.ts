@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Pick 3",
-    short_name: "Pick 3",
-    description: "Pick 3 stocks before the bell. Watch them all day. Beat your friends.",
+    name: "Daily Tickr",
+    short_name: "Tickr",
+    description: "Guess the mystery S&P 500 company from its stock chart. A new one every day.",
     start_url: "/",
     display: "standalone",
     background_color: "#f6f7f9",
