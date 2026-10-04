@@ -28,7 +28,6 @@ type Result = { guesses: GuessResult[]; hints: string[]; done: boolean; solved: 
 
 // Bump the version to make every device forget its saved guesses (e.g. after clearing plays from the database).
 const saved = (date: string) => `tickr.v3.${date}`;
-const SHOW_SECTOR = "tickr.showSector";
 const SHOW_HINTS = "tickr.showHints";
 
 function loadGuesses(date: string): string[] {
@@ -119,42 +118,29 @@ function Kicker({ children, className = "" }: { children: React.ReactNode; class
 }
 
 /** 1-year price chart. Unlabeled during play; the reveal passes the company name. */
-function Chart({ bars, compact = false }: { bars: Bar[]; compact?: boolean }) {
-  if (bars.length < 2) return <div className="h-36 rounded-xl bg-line/40" />;
-  const W = 320, H = 140, P = 4;
+function Chart({ bars }: { bars: Bar[] }) {
+  if (bars.length < 2) return <div className="h-44 rounded-xl bg-line/40" />;
+  const W = 320, H = 150, P = 4;
   const closes = bars.map((b) => b.c);
   const lo = Math.min(...closes), hi = Math.max(...closes);
   const x = (i: number) => P + (i / (bars.length - 1)) * (W - 2 * P);
   const y = (c: number) => P + (1 - (c - lo) / (hi - lo || 1)) * (H - 2 * P);
   const line = bars.map((b, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(b.c).toFixed(1)}`).join("");
   const up = closes.at(-1)! >= closes[0];
-  const color = up ? "var(--up)" : "var(--down)";
   return (
     <div>
-      <div className="flex justify-between font-mono text-[11px] text-muted tabular">
-        <span>
-          High {usd(hi)} · Low {usd(lo)}
-        </span>
-        <span className={up ? "text-up" : "text-down"}>{pct(closes.at(-1)! / closes[0] - 1, 1)} in a year</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className={`mt-1 w-full ${compact ? "h-28" : "h-36"}`} preserveAspectRatio="none" role="img" aria-label="One-year stock chart">
-        <defs>
-          <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={color} stopOpacity="0.25" />
-            <stop offset="1" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={`${line}L${x(bars.length - 1)},${H}L${x(0)},${H}Z`} fill="url(#fill)" />
-        <path d={line} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      </svg>
-      <div className="flex justify-between font-mono text-[11px] text-muted tabular">
+      <div className="flex items-baseline justify-between gap-2 text-[13px] text-muted tabular sm:text-sm">
         <span>
           {month(bars[0].t)} · {usd(closes[0])}
         </span>
+        <span className={up ? "text-up" : "text-down"}>{pct(closes.at(-1)! / closes[0] - 1, 1)} in a year</span>
         <span>
           {month(bars.at(-1)!.t)} · {usd(closes.at(-1)!)}
         </span>
       </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 h-44 w-full sm:h-52" preserveAspectRatio="none" role="img" aria-label="One-year stock chart">
+        <path d={line} fill="none" stroke={up ? "var(--up)" : "var(--down)"} strokeWidth="2.5" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      </svg>
     </div>
   );
 }
@@ -215,39 +201,28 @@ function VsMarket({ symbol, stock, market }: { symbol: string; stock: Bar[]; mar
 
 /** Every possible answer, A to Z, with no grouping (grouping by sector would give it away). Tapping a name fills the guess box; it doesn't guess. */
 function AnswerBank({ bank, taken, onPick }: { bank: [string, string][]; taken: Set<string>; onPick: (name: string) => void }) {
-  const [open, setOpen] = useState(false);
   return (
-    <div className="mt-2">
-      <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-1.5 font-mono text-xs text-muted">
-        <span className="flex h-4 w-4 items-center justify-center rounded border border-line text-[11px] leading-none">{open ? "−" : "+"}</span>
-        {open ? "Hide stock list" : "Stuck? Browse possible answers"}
-      </button>
-      {open && (
-        <div className="mt-2 rounded-xl border border-line">
-          <p className="border-b border-line px-3 py-2 text-xs text-muted">
-            Every answer is one of these {bank.length} companies. Tap one to put it in the guess box.
-          </p>
-          <div className="flex max-h-72 flex-wrap gap-1.5 overflow-y-auto p-3">
-            {bank.map(([sym, name]) => (
-              <button
-                key={sym}
-                onClick={() => onPick(name)}
-                disabled={taken.has(sym)}
-                className="rounded-full border border-line px-2.5 py-1 text-xs active:bg-line/60 disabled:line-through disabled:opacity-40"
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="mt-2 rounded-xl border border-line">
+      <p className="border-b border-line px-3 py-2 text-xs text-muted">
+        Every answer is one of these {bank.length} companies. Tap one to put it in the guess box.
+      </p>
+      <div className="flex max-h-72 flex-wrap gap-1.5 overflow-y-auto p-3">
+        {bank.map(([sym, name]) => (
+          <button
+            key={sym}
+            onClick={() => onPick(name)}
+            disabled={taken.has(sym)}
+            className="rounded-full border border-line px-2.5 py-1 text-xs active:bg-line/60 disabled:line-through disabled:opacity-40"
+          >
+            {name}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [string, string][]; bank: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void }) {
-  const [q, setQ] = useState("");
-  const input = useRef<HTMLInputElement>(null);
+function Guesser({ companies, taken, disabled, onGuess, q, setQ, input }: { companies: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void; q: string; setQ: (q: string) => void; input: React.RefObject<HTMLInputElement | null> }) {
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
@@ -255,27 +230,37 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
       .filter(([sym]) => !taken.has(sym))
       .map(([sym, name]) => {
         const n = name.toLowerCase();
-        const score = sym.toLowerCase() === s ? 0 : n.startsWith(s) ? 1 : sym.toLowerCase().startsWith(s) ? 2 : n.includes(s) ? 3 : -1;
+        const score = sym.toLowerCase() === s || n === s ? 0 : n.startsWith(s) ? 1 : sym.toLowerCase().startsWith(s) ? 2 : n.includes(s) ? 3 : -1;
         return { sym, name, score };
       })
       .filter((m) => m.score >= 0);
     return scored.sort((a, b) => a.score - b.score).slice(0, 8);
   }, [q, companies, taken]);
 
-  function pick(sym: string) {
+  // Picking a suggestion only fills the box. Nothing is guessed until you press Guess.
+  const chosen = matches.find((m) => m.score === 0);
+  const filled = !!chosen && q.trim().toLowerCase() === chosen.name.toLowerCase();
+
+  function fill(name: string) {
+    setQ(name);
+    input.current?.focus({ preventScroll: true });
+  }
+
+  function submit() {
+    if (!chosen) return;
     setQ("");
-    onGuess(sym);
+    onGuess(chosen.sym);
     input.current?.focus({ preventScroll: true });
   }
 
   return (
-    <div>
-      <div className="relative">
+    <div className="relative flex gap-2">
+      <div className="min-w-0 flex-1">
         <input
           ref={input}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && matches[0] && pick(matches[0].sym)}
+          onKeyDown={(e) => e.key === "Enter" && matches[0] && !filled && fill(matches[0].name)}
           disabled={disabled}
           type="search"
           inputMode="search"
@@ -284,14 +269,14 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder="Type a stock name or ticker"
+          placeholder="Stock name or ticker"
           className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
         />
-        {matches.length > 0 && (
+        {matches.length > 0 && !filled && (
           <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-card shadow-lg">
             {matches.map((m) => (
               <li key={m.sym}>
-                <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
+                <button onClick={() => fill(m.name)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
                   <span className="truncate">{m.name}</span>
                   <span className="font-mono text-xs text-muted">{m.sym}</span>
                 </button>
@@ -300,14 +285,13 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
           </ul>
         )}
       </div>
-      <AnswerBank
-        bank={bank}
-        taken={taken}
-        onPick={(name) => {
-          setQ(name);
-          input.current?.focus({ preventScroll: true });
-        }}
-      />
+      <button
+        onClick={submit}
+        disabled={disabled || !chosen}
+        className="shrink-0 rounded-xl border border-accent bg-accent px-5 font-semibold text-accent-fg active:scale-[0.98] disabled:border-line disabled:bg-bg disabled:text-muted"
+      >
+        Guess
+      </button>
     </div>
   );
 }
@@ -455,19 +439,21 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  // The sector hint is optional: hidden unless you turn it on. The choice sticks on this device.
+  // The sector hint is optional: hidden at the start of every visit until you turn it on.
   const [showSector, setShowSector] = useState(false);
   // Hints (one per wrong guess) are on unless you turn them off. Also remembered per device.
   const [showHints, setShowHints] = useState(true);
+  const [bankOpen, setBankOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const id = loadIdentity();
     setMe(id);
     try {
-      setShowSector(localStorage.getItem(SHOW_SECTOR) === "1");
       setShowHints(localStorage.getItem(SHOW_HINTS) !== "0");
     } catch {
-      // Storage blocked: default to hidden.
+      // Storage blocked: hints stay on.
     }
     (async () => {
       try {
@@ -524,13 +510,7 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   }
 
   function toggleSector() {
-    const next = !showSector;
-    setShowSector(next);
-    try {
-      localStorage.setItem(SHOW_SECTOR, next ? "1" : "0");
-    } catch {
-      // Storage blocked: the toggle still works for this visit.
-    }
+    setShowSector(!showSector);
   }
 
   function toggleHints() {
@@ -630,43 +610,60 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
       <Card>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">Name the mystery stock</h2>
-          <div className="flex gap-1" aria-label={`${left} of ${puzzle.maxGuesses} guesses left`}>
+          <h2 className="text-lg font-bold sm:text-xl">Name the mystery stock</h2>
+          <div className="flex gap-1.5" aria-label={`${left} of ${puzzle.maxGuesses} guesses left`}>
             {Array.from({ length: puzzle.maxGuesses }, (_, i) => (
-              <span key={i} className={`h-2.5 w-2.5 rounded-full ${i < tried.length ? "bg-down" : "bg-line"}`} />
+              <span key={i} className={`h-3 w-3 rounded-full ${i < tried.length ? "bg-down" : "bg-line"}`} />
             ))}
           </div>
         </div>
         {/* The guess box sits right under the chart so it's already above the phone keyboard:
             Safari then has no reason to scroll the chart away while you type. */}
         <div className="mt-3">
-          <Chart bars={puzzle.chart} compact />
+          <Chart bars={puzzle.chart} />
         </div>
-        <div className="mt-3">
-          <Guesser companies={companies} bank={bank} taken={new Set(guesses)} disabled={busy} onGuess={guess} />
+        <div className="mt-4">
+          <Guesser companies={companies} taken={new Set(guesses)} disabled={busy} onGuess={guess} q={q} setQ={setQ} input={input} />
           {error && <p className="mt-2 text-sm text-down">{error}</p>}
         </div>
+        <button
+          onClick={() => setBankOpen(!bankOpen)}
+          aria-expanded={bankOpen}
+          className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm font-semibold active:bg-line/60 ${bankOpen ? "border-accent text-accent" : "border-line"}`}
+        >
+          {bankOpen ? "Hide the list" : `Browse all ${bank.length} stocks`}
+          <svg viewBox="0 0 12 12" className={`h-3 w-3 transition-transform ${bankOpen ? "rotate-180" : ""}`} aria-hidden="true">
+            <path d="M2 4.5 6 8.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        {bankOpen && (
+          <AnswerBank
+            bank={bank}
+            taken={new Set(guesses)}
+            onPick={(name) => {
+              setQ(name);
+              input.current?.focus({ preventScroll: true });
+            }}
+          />
+        )}
         <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-          <span className="min-w-0">
-            <span className="text-muted">Sector:</span>{" "}
-            {showSector ? <span className="font-semibold">{puzzle.sector}</span> : <span className="text-muted">hidden</span>}
-          </span>
-          <button
-            onClick={toggleSector}
-            aria-pressed={showSector}
-            className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-xs active:bg-line/60"
-          >
-            {showSector ? "Hide" : "Show"}
+          {puzzle.hasHints ? (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input type="checkbox" checked={showHints} onChange={toggleHints} className="h-4 w-4 accent-accent" />
+              Show hints
+            </label>
+          ) : (
+            <span />
+          )}
+          <button onClick={toggleSector} aria-pressed={showSector} className="text-muted active:text-fg">
+            {showSector ? "Hide sector" : "Show sector"}
           </button>
         </div>
-        {showSector && SECTOR_MEANING[puzzle.sector] && (
-          <p className="mt-1 text-xs leading-snug text-muted">{SECTOR_MEANING[puzzle.sector]}.</p>
-        )}
-        {puzzle.hasHints && (
-          <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-sm text-muted">
-            <input type="checkbox" checked={showHints} onChange={toggleHints} className="h-4 w-4 accent-accent" />
-            Show hints
-          </label>
+        {showSector && (
+          <p className="mt-2 text-sm leading-snug">
+            <span className="font-semibold">{puzzle.sector}</span>
+            {SECTOR_MEANING[puzzle.sector] && <span className="text-muted">: {SECTOR_MEANING[puzzle.sector]}.</span>}
+          </p>
         )}
         {showHints && result?.hints && result.hints.length > 0 && (
           <ul className="mt-2 space-y-1.5">
