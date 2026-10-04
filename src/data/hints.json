@@ -178,5 +178,185 @@
     "They make money when you borrow and when you save.",
     "There's a good chance one of their cards is in a wallet in your house.",
     "Their headquarters is in the South, not on Wall Street."
+  ],
+  "MSFT": [
+    "You've probably used something they make this week, maybe at work.",
+    "A lot of their money comes from businesses paying them every month.",
+    "Their software has crashed at the worst possible moment for millions of people.",
+    "They started in a different state than the one they're headquartered in now."
+  ],
+  "GOOGL": [
+    "You've almost certainly used something they make today.",
+    "Most of their money comes from advertising.",
+    "They know what you were looking up at 2 AM.",
+    "They started in a garage."
+  ],
+  "LOW": [
+    "Most of their money comes from regular people walking into a store.",
+    "Weekend projects are their bread and butter.",
+    "Their customers come in for one light bulb and leave with a new grill.",
+    "They have a bigger rival that's often right across the street."
+  ],
+  "GM": [
+    "They've been around longer than your grandparents.",
+    "Their products are usually the second most expensive thing a family owns.",
+    "They own several brands that people argue about at tailgates.",
+    "They went bankrupt once and came back."
+  ],
+  "MA": [
+    "Your money moves through them more often than you realize.",
+    "They earn a tiny cut of a huge number of purchases.",
+    "They're in your wallet, but they've never actually held your money.",
+    "They used to be owned by a group of banks."
+  ],
+  "AXP": [
+    "Millions of people carry something of theirs everywhere they go.",
+    "Their customers tend to spend more than average.",
+    "People pay a yearly fee just to carry their product.",
+    "They started out moving packages, not money."
+  ],
+  "PYPL": [
+    "You've probably paid someone through them at some point.",
+    "Most of what they do happens on a screen.",
+    "They're a big reason splitting a dinner bill doesn't require anyone to carry cash.",
+    "Some of their early team went on to start a bunch of other famous companies."
+  ],
+  "LLY": [
+    "They've been around for well over 100 years.",
+    "A lot of what they sell needs a prescription.",
+    "One of their drugs got so popular that people talk about it at dinner parties.",
+    "They're one of the most valuable companies in the world, and most people couldn't name one thing they make."
+  ],
+  "CVS": [
+    "Most Americans have been inside one of their locations.",
+    "You can pick up snacks, shampoo, and medicine in one stop.",
+    "Their receipts are famously, ridiculously long.",
+    "They also own a big health insurance company."
+  ],
+  "CVX": [
+    "You've almost certainly paid for what they make this month, maybe without realizing it.",
+    "Their profits swing a lot depending on world events.",
+    "Their best customers are cars, ships, and planes, not people.",
+    "They recently moved their headquarters from California to Texas."
+  ],
+  "CAT": [
+    "Most of their customers are other companies or governments, not regular people.",
+    "When you see their products, something is usually being built.",
+    "Their machines are the color of a school bus, just a lot bigger.",
+    "Their stock is often treated as a sign of how the whole economy is doing."
+  ],
+  "DE": [
+    "Their customers are mostly businesses, not regular shoppers.",
+    "The weather can make or break their year.",
+    "Some of their customers have been loyal to them for three generations of the same family.",
+    "They're one of the oldest companies in this game, founded before the Civil War."
+  ],
+  "FDX": [
+    "Their work touches almost every business in the country.",
+    "Their busiest season is the holidays.",
+    "Their founder supposedly got a C on the college paper that described the idea.",
+    "Their main hub does most of its work in the middle of the night."
+  ],
+  "LUV": [
+    "You've almost certainly paid them at some point, or someone in your family has.",
+    "Their prices change a lot depending on when you buy.",
+    "Their flight attendants are known for doing comedy over the intercom.",
+    "They kept things simple by flying just one type of plane."
+  ],
+  "ABNB": [
+    "People usually spend money with them when they're away from home.",
+    "They're younger than most of the companies in this game.",
+    "Their customers sometimes pay a cleaning fee and still get asked to take out the trash.",
+    "They don't own most of the places their customers stay."
+  ],
+  "YUM": [
+    "Almost everyone in America has eaten something from them.",
+    "You can get what they sell in a few minutes without getting out of your car.",
+    "They own more than one fast food chain you'd never guess are related.",
+    "One of their recipes is one of the most famous secrets in the world."
+  ],
+  "DPZ": [
+    "There's a good chance you've ordered from them.",
+    "Most of what they sell gets eaten at home, not where it's made.",
+    "Their app lets you watch your order get made, step by step.",
+    "They're smaller than most companies in this game, but they're everywhere."
+  ],
+  "GIS": [
+    "You've probably had something they make this year.",
+    "A lot of what they sell is sitting in your pantry right now.",
+    "Their mascots include a rabbit who never gets the cereal and a doughboy who giggles when you poke him.",
+    "They got their start with a flour mill before the Civil War."
+  ],
+  "KHC": [
+    "You've probably had something they make this year.",
+    "A lot of what they sell is in your fridge or pantry right now.",
+    "One of their products is basically required on fries, and another is basically required on kids' dinner plates.",
+    "They're the result of two famous old food companies merging."
+  ],
+  "BBY": [
+    "There's a good chance you've shopped with them.",
+    "People usually come to them when something they own breaks or gets old.",
+    "Their employees wear blue shirts and spend a lot of time explaining whether a TV is worth it.",
+    "They used to go by a totally different name."
+  ],
+  "INTC": [
+    "Most people use their work every day without ever buying anything from them directly.",
+    "What they make is tiny but incredibly expensive to produce.",
+    "They had one of the most famous jingles in tech, and it's only a few notes long.",
+    "For decades they were the undisputed king of their industry, until newer rivals caught up."
+  ],
+  "AMD": [
+    "Most people use their work every day without ever buying anything from them directly.",
+    "What they make is tiny but incredibly expensive to produce.",
+    "They spent decades as the underdog in a two-horse race, then started winning.",
+    "Gamers have known their name for decades."
+  ],
+  "T": [
+    "There's a good chance you pay them every month.",
+    "They're one of the oldest companies in this game.",
+    "Their roots go back to the invention that made people start saying hello when they answer.",
+    "The government broke them up once, and some of the pieces later got back together."
+  ],
+  "TMUS": [
+    "There's a good chance you pay them every month.",
+    "They're much younger than their biggest rivals.",
+    "Their brand color is a hot pink that's hard to miss.",
+    "A big chunk of the company is owned by a company from Germany."
+  ],
+  "HAS": [
+    "Most people in America have been their customer at some point.",
+    "Kids are a huge part of their audience.",
+    "Families have nearly ended friendships over one of their board games.",
+    "They make some of the oldest toys still sitting on store shelves."
+  ],
+  "LULU": [
+    "There's a decent chance you're wearing something like what they make right now.",
+    "Their stuff costs more than the competition, and people pay it anyway.",
+    "Their leggings got so popular that people wear them everywhere except the gym.",
+    "Their founder became controversial and eventually left the company."
+  ],
+  "DG": [
+    "There's a good chance you've shopped with them this year.",
+    "They sell groceries and a little bit of everything else.",
+    "In a lot of small towns, they're the closest store for miles.",
+    "They have more stores than almost any retailer in America."
+  ],
+  "KR": [
+    "Most American households buy groceries from somewhere like them.",
+    "You can pick up groceries and fill up your gas tank in the same trip.",
+    "They run so many different store names that you might shop there without knowing it.",
+    "They started as a single grocery store back in the 1880s."
+  ],
+  "CCL": [
+    "People usually spend money with them when they're away from home.",
+    "They charge more on weekends and holidays.",
+    "Their customers pack swimsuits and seasickness pills for the same trip.",
+    "They own way more brands than most people realize."
+  ],
+  "MNST": [
+    "You've almost certainly had something like what they make this year.",
+    "What they sell is in almost every fridge, vending machine, and gas station in the country.",
+    "Their customers say they need it to stay awake, then drink one at 9 PM.",
+    "They've been one of the best-performing stocks of the last few decades, and most people have no idea."
   ]
 }
