@@ -11,6 +11,7 @@ type Puzzle = {
   maxGuesses: number;
   chart: Bar[];
   sector: string;
+  hasHints: boolean;
   finishedGuesses: string[] | null;
   streak: number;
   played: number;
@@ -23,11 +24,12 @@ type Stats = {
   dist: number[];
   recent: { number: number; date: string; name: string; symbol: string; guesses: number; solved: boolean }[];
 };
-type Result = { guesses: GuessResult[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
+type Result = { guesses: GuessResult[]; hints: string[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
 
 // Bump the version to make every device forget its saved guesses (e.g. after clearing plays from the database).
 const saved = (date: string) => `tickr.v3.${date}`;
 const SHOW_SECTOR = "tickr.showSector";
+const SHOW_HINTS = "tickr.showHints";
 
 function loadGuesses(date: string): string[] {
   try {
@@ -257,7 +259,7 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
         return { sym, name, score };
       })
       .filter((m) => m.score >= 0);
-    return scored.sort((a, b) => a.score - b.score).slice(0, 4);
+    return scored.sort((a, b) => a.score - b.score).slice(0, 8);
   }, [q, companies, taken]);
 
   function pick(sym: string) {
@@ -286,7 +288,7 @@ function Guesser({ companies, bank, taken, disabled, onGuess }: { companies: [st
           className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
         />
         {matches.length > 0 && (
-          <ul className="absolute inset-x-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-line bg-card shadow-lg">
+          <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-card shadow-lg">
             {matches.map((m) => (
               <li key={m.sym}>
                 <button onClick={() => pick(m.sym)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
@@ -455,12 +457,15 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   const [now, setNow] = useState(() => Date.now());
   // The sector hint is optional: hidden unless you turn it on. The choice sticks on this device.
   const [showSector, setShowSector] = useState(false);
+  // Hints (one per wrong guess) are on unless you turn them off. Also remembered per device.
+  const [showHints, setShowHints] = useState(true);
 
   useEffect(() => {
     const id = loadIdentity();
     setMe(id);
     try {
       setShowSector(localStorage.getItem(SHOW_SECTOR) === "1");
+      setShowHints(localStorage.getItem(SHOW_HINTS) !== "0");
     } catch {
       // Storage blocked: default to hidden.
     }
@@ -523,6 +528,16 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     setShowSector(next);
     try {
       localStorage.setItem(SHOW_SECTOR, next ? "1" : "0");
+    } catch {
+      // Storage blocked: the toggle still works for this visit.
+    }
+  }
+
+  function toggleHints() {
+    const next = !showHints;
+    setShowHints(next);
+    try {
+      localStorage.setItem(SHOW_HINTS, next ? "1" : "0");
     } catch {
       // Storage blocked: the toggle still works for this visit.
     }
@@ -641,11 +656,34 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
             aria-pressed={showSector}
             className="shrink-0 rounded-full border border-line px-3 py-1 font-mono text-xs active:bg-line/60"
           >
-            {showSector ? "Hide" : "Show hint"}
+            {showSector ? "Hide" : "Show"}
           </button>
         </div>
         {showSector && SECTOR_MEANING[puzzle.sector] && (
           <p className="mt-1 text-xs leading-snug text-muted">{SECTOR_MEANING[puzzle.sector]}.</p>
+        )}
+        {puzzle.hasHints && (
+          <label className="mt-3 flex w-fit cursor-pointer items-center gap-2 text-sm text-muted">
+            <input type="checkbox" checked={showHints} onChange={toggleHints} className="h-4 w-4 accent-accent" />
+            Show hints
+          </label>
+        )}
+        {showHints && result?.hints && result.hints.length > 0 && (
+          <ul className="mt-2 space-y-1.5">
+            {/* Newest first and highlighted; earlier hints stay below, dimmed. */}
+            {result.hints
+              .map((h, i) => ({ h, i }))
+              .reverse()
+              .map(({ h, i }, k) => (
+                <li
+                  key={i}
+                  className={`rounded-xl px-3 py-2 text-sm leading-snug ${k === 0 ? "bg-accent/15 text-fg" : "bg-line/40 text-muted"}`}
+                >
+                  <span className="mr-1.5 font-mono text-[11px] uppercase tracking-wider opacity-70">Hint {i + 1}</span>
+                  {h}
+                </li>
+              ))}
+          </ul>
         )}
         {tried.length > 0 && (
           <>

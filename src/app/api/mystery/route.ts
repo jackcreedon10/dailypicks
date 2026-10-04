@@ -1,7 +1,7 @@
 import { authPlayer } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { handle, json } from "@/lib/http";
-import { MAX_GUESSES, answerFor, practiceDate, puzzleNumber, stats, today, yearChart } from "@/lib/mystery";
+import { MAX_GUESSES, answerFor, hasHints, practiceDate, puzzleNumber, stats, today, yearChart } from "@/lib/mystery";
 
 /** Today's puzzle: the unlabeled 1-year chart and the optional sector hint. Plus your record and today's guesses, if any. */
 export const GET = handle(async (req: Request) => {
@@ -21,6 +21,7 @@ export const GET = handle(async (req: Request) => {
     maxGuesses: MAX_GUESSES,
     chart,
     sector: answer.sector,
+    hasHints: hasHints(answer.symbol),
     finishedGuesses: (mine.data as { guesses: string[] } | null)?.guesses ?? null,
     streak: record?.streak ?? 0,
     played: record?.played ?? 0,

@@ -1,4 +1,5 @@
 import companiesJson from "@/data/sp500.json";
+import hintsJson from "@/data/hints.json";
 import { db, must } from "./db";
 import { GameError } from "./game";
 import { BRACKETS } from "./brackets";
@@ -41,6 +42,14 @@ EBAY WM RL TPR CHTR`
   .split(/\s+/)
   .filter((s) => BY_SYMBOL.has(s));
 
+/** Four hints per company, broad to narrower: about 30, 15-20, then ~10 and ~10 companies fit each. */
+const HINTS = hintsJson as Record<string, string[]>;
+const HINTED_POOL = ANSWER_POOL.filter((sym) => HINTS[sym]?.length === 4);
+
+/** Hints unlocked so far: one per wrong guess, up to four. Never sends hints that aren't unlocked yet. */
+export const hintsFor = (symbol: string, wrong: number) => (HINTS[symbol] ?? []).slice(0, Math.min(4, Math.max(0, wrong)));
+export const hasHints = (symbol: string) => !!HINTS[symbol]?.length;
+
 const dayIndex = (date: string) => Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${FIRST_DAY}T12:00:00Z`)) / 86_400_000);
 
 export function puzzleNumber(date: string) {
@@ -58,7 +67,8 @@ const NO_REPEAT_DAYS = 120;
 export async function answerFor(date: string, practice = false): Promise<Company> {
   if (practice) {
     const h = [...`practice:${date}`].reduce((x, ch) => (Math.imul(x, 31) + ch.charCodeAt(0)) >>> 0, 7);
-    return BY_SYMBOL.get(ANSWER_POOL[h % ANSWER_POOL.length])!;
+    const pool = HINTED_POOL.length ? HINTED_POOL : ANSWER_POOL;
+    return BY_SYMBOL.get(pool[h % pool.length])!;
   }
   const saved = await savedAnswers([date]);
   if (saved[date]) return saved[date];
@@ -71,8 +81,10 @@ export async function answerFor(date: string, practice = false): Promise<Company
     .limit(NO_REPEAT_DAYS)
     .then(must)) as { symbol: string }[];
   const used = new Set(recent.map((r) => r.symbol));
-  const fresh = ANSWER_POOL.filter((sym) => !used.has(sym));
-  const choices = fresh.length ? fresh : ANSWER_POOL;
+  // Only companies with written hints can be picked (falls back to the full pool if none exist).
+  const pool = HINTED_POOL.length ? HINTED_POOL : ANSWER_POOL;
+  const fresh = pool.filter((sym) => !used.has(sym));
+  const choices = fresh.length ? fresh : pool;
   const symbol = choices[randomInt(choices.length)];
 
   // If another request picked first, theirs wins: re-read instead of overwriting.
@@ -353,7 +365,8 @@ export async function play(playerId: string, date: string, rawGuesses: unknown) 
   const solved = solvedAt >= 0;
   const done = solved || guesses.length === MAX_GUESSES;
 
-  if (!done) return { guesses: results, done, solved, reveal: null, stats: null };
+  const hints = hintsFor(answer.symbol, guesses.length - (solved ? 1 : 0));
+  if (!done) return { guesses: results, hints, done, solved, reveal: null, stats: null };
 
   // First finish counts; a replay from another device keeps the original result. Practice games aren't saved.
   if (!practice) {
@@ -364,5 +377,5 @@ export async function play(playerId: string, date: string, rawGuesses: unknown) 
   }
 
   const [rev, st] = await Promise.all([reveal(answer, date), stats(playerId, date)]);
-  return { guesses: results, done, solved, reveal: rev, stats: st };
+  return { guesses: results, hints, done, solved, reveal: rev, stats: st };
 }
