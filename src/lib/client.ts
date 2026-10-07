@@ -99,7 +99,8 @@ export function dayLabel(date: string): string {
 export async function shareText(text: string, url: string): Promise<"shared" | "copied" | "failed"> {
   if (typeof navigator !== "undefined" && navigator.share) {
     try {
-      await navigator.share({ text, url });
+      // Single string: some targets (iMessage) drop `text` when a separate `url` is passed.
+      await navigator.share({ text: `${text}\n${url}` });
       return "shared";
     } catch (e) {
       if ((e as Error).name === "AbortError") return "failed";
