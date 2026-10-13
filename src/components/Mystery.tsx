@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, clock, loadIdentity, pct, saveIdentity, shareText, tone, type Identity } from "@/lib/client";
-import { BRACKETS, SECTOR_MEANING } from "@/lib/brackets";
-import type { Bar, GuessResult, Mark, Reveal } from "@/lib/mystery";
+import { SECTOR_MEANING } from "@/lib/brackets";
+import type { Bar, BoardItem, GuessResult, Mark, Reveal } from "@/lib/mystery";
 
 type Puzzle = {
   date: string;
@@ -11,6 +11,8 @@ type Puzzle = {
   maxGuesses: number;
   chart: Bar[];
   sector: string;
+  /** The starting board: up to 25 companies, one of them the answer. Tiles keep their spot all game. */
+  board: BoardItem[];
   hasHints: boolean;
   finishedGuesses: string[] | null;
   streak: number;
@@ -24,11 +26,39 @@ type Stats = {
   dist: number[];
   recent: { number: number; date: string; name: string; symbol: string; guesses: number; solved: boolean }[];
 };
-type Result = { guesses: GuessResult[]; hints: string[]; done: boolean; solved: boolean; reveal: Reveal | null; stats: Stats | null };
+type Result = {
+  guesses: GuessResult[];
+  hints: string[];
+  /** The companies still in play (null once the game is over). */
+  board: BoardItem[] | null;
+  done: boolean;
+  solved: boolean;
+  reveal: Reveal | null;
+  stats: Stats | null;
+};
 
 // Bump the version to make every device forget its saved guesses (e.g. after clearing plays from the database).
 const saved = (date: string) => `tickr.v3.${date}`;
-const SHOW_HINTS = "tickr.showHints";
+const DEVICE = "tickr.device";
+
+/** A random id for this browser, so the funnel can count opens and starts before a player exists. */
+function deviceId(): string {
+  try {
+    let d = localStorage.getItem(DEVICE);
+    if (!d) {
+      d = crypto.randomUUID();
+      localStorage.setItem(DEVICE, d);
+    }
+    return d;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+/** Fire-and-forget funnel event (open / start / finish). The server ignores practice days and repeats. */
+function track(kind: "open" | "start" | "finish", date: string, me: Identity | null) {
+  api("/api/mystery/event", { method: "POST", body: { date, device: deviceId(), kind }, me }).catch(() => {});
+}
 
 function loadGuesses(date: string): string[] {
   try {
@@ -84,7 +114,18 @@ const TILE: Record<Mark, string> = {
   miss: "bg-line text-fg",
 };
 
-function GuessRow({ g }: { g: GuessResult }) {
+/** The cards in plain words, so a miss tells you which way to go: "Right sector, different industry · bigger company · ..." */
+function readCards(g: GuessResult): string {
+  const c = g.cards;
+  const industry = c.industry.mark === "match" ? "Same industry" : c.industry.mark === "close" ? "Right sector, different industry" : "Different sector";
+  const size = c.size.mark === "match" ? "same size" : c.size.dir === "up" ? "bigger company" : "smaller company";
+  const founded = c.founded.mark === "match" ? "same decade" : c.founded.dir === "up" ? "founded later" : "founded earlier";
+  const hq = c.hq.mark === "match" ? "same state" : c.hq.mark === "close" ? "same region" : "different region";
+  return `${industry} · ${size} · ${founded} · ${hq}`;
+}
+
+/** One guess: name, the four cards (flipping in one at a time when it's the guess you just made), and what they mean. */
+function GuessRow({ g, fresh }: { g: GuessResult; fresh: boolean }) {
   const arrow = (d?: "up" | "down" | null) => (d === "up" ? " ↑" : d === "down" ? " ↓" : "");
   return (
     <li>
@@ -96,8 +137,12 @@ function GuessRow({ g }: { g: GuessResult }) {
         <span className="font-mono text-xs text-muted">{g.symbol}</span>
       </div>
       <div className="grid grid-cols-4 gap-1.5">
-        {CARD_ORDER.map((k) => (
-          <div key={k} className={`flex min-h-12 items-center justify-center rounded-lg px-1 py-1.5 text-center ${TILE[g.cards[k].mark]}`}>
+        {CARD_ORDER.map((k, i) => (
+          <div
+            key={k}
+            className={`flex min-h-12 items-center justify-center rounded-lg px-1 py-1.5 text-center ${TILE[g.cards[k].mark]} ${fresh ? "tile-flip" : ""}`}
+            style={fresh ? { animationDelay: `${i * 150}ms` } : undefined}
+          >
             <span className="line-clamp-2 text-[11px] font-semibold leading-tight [overflow-wrap:anywhere]">
               {g.cards[k].value}
               {arrow(g.cards[k].dir)}
@@ -105,7 +150,98 @@ function GuessRow({ g }: { g: GuessResult }) {
           </div>
         ))}
       </div>
+      {!g.correct && (
+        <p className={`mt-1.5 text-xs leading-snug text-muted ${fresh ? "fade-in" : ""}`} style={fresh ? { animationDelay: "600ms" } : undefined}>
+          {readCards(g)}
+        </p>
+      )}
     </li>
+  );
+}
+
+/** A burst of confetti for a solve: a normal amount, or a gold storm for a first-try solve. Skipped for people who turn off motion. */
+function Confetti({ big = false }: { big?: boolean }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: big ? 150 : 48 }, (_, i) => ({
+        left: Math.random() * 100,
+        delay: Math.random() * (big ? 1.2 : 0.4),
+        dur: (big ? 2.2 : 1.6) + Math.random() * 1.4,
+        drift: (Math.random() - 0.5) * (big ? 260 : 160),
+        spin: (Math.random() - 0.5) * 900,
+        size: big && i % 3 === 0 ? "h-3.5 w-2" : "h-2.5 w-1.5",
+        color: (big ? ["#fbbf24", "#f59e0b", "#fde68a", "var(--up)", "#fbbf24"] : ["var(--up)", "var(--accent)", "#fbbf24", "var(--s3)"])[
+          i % (big ? 5 : 4)
+        ],
+      })),
+    [big],
+  );
+  return (
+    <div className="pointer-events-none fixed inset-0 z-30 overflow-hidden motion-reduce:hidden" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span
+          key={i}
+          className={`confetti absolute top-0 rounded-sm ${p.size}`}
+          style={
+            {
+              left: `${p.left}%`,
+              background: p.color,
+              animationDelay: `${p.delay}s`,
+              animationDuration: `${p.dur}s`,
+              "--drift": `${p.drift}px`,
+              "--spin": `${p.spin}deg`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What a first-try solve is called. One per puzzle day (picked from the date), so a refresh shows the same line and
+ * everyone who gets it first try that day is talking about the same thing. Which one you'll get is part of the fun.
+ */
+const ACE_LINES = [
+  { emoji: "🕵️", title: "Insider trading?", sub: "First try. We're not asking questions." },
+  { emoji: "📈", title: "Bought the bottom", sub: "Perfect timing, first try." },
+  { emoji: "🎯", title: "Called it", sub: "First try. No hints needed." },
+  { emoji: "🧓", title: "Warren would be proud", sub: "First try. Pure fundamentals." },
+];
+const aceLine = (date: string) => ACE_LINES[[...date].reduce((h, ch) => (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0, 7) % ACE_LINES.length];
+
+/** The big moment for getting it on the first try: a gold flash, then the day's line pops in big over a soft backdrop and fades. */
+function FirstTry({ line }: { line: (typeof ACE_LINES)[number] }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-6" aria-live="polite">
+      <div className="ace-flash absolute inset-0" />
+      <div className="ace-pop relative rounded-3xl bg-bg/85 px-6 py-6 text-center shadow-2xl backdrop-blur-sm">
+        <div className="text-6xl">{line.emoji}</div>
+        <div className="mt-2 text-4xl font-black uppercase leading-[1.05] tracking-tight text-amber-500 sm:text-5xl">{line.title}</div>
+        <div className="mt-2 text-base font-semibold text-fg">{line.sub}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The year in one line: what $1,000 in this stock became, next to the same $1,000 in the S&P 500. */
+function Punchline({ r }: { r: Reveal }) {
+  if (r.yearChange == null) return null;
+  const mkt = r.market.length > 1 ? r.market.at(-1)!.c / r.market[0].c - 1 : null;
+  const dollars = (x: number) => `$${Math.round(1000 * (1 + x)).toLocaleString("en-US")}`;
+  // "The Coca-Cola Company" reads better as "Coca-Cola" mid-sentence.
+  const short = r.name.replace(/^The /, "").replace(/,? (Inc\.|Company|Corporation|Corp\.)$/, "");
+  return (
+    <p className="mt-4 rounded-xl bg-line/40 px-3 py-2.5 text-sm leading-snug">
+      $1,000 in {short} a year ago is worth{" "}
+      <span className={`font-mono font-bold tabular ${tone(r.yearChange)}`}>{dollars(r.yearChange)}</span> today.
+      {mkt != null && (
+        <>
+          {" "}
+          In the S&amp;P 500 it&apos;d be <span className={`font-mono font-bold tabular ${tone(mkt)}`}>{dollars(mkt)}</span>.
+        </>
+      )}
+    </p>
   );
 }
 
@@ -114,7 +250,9 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 function Kicker({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <p className={`font-mono text-[11px] uppercase tracking-[0.18em] text-muted ${className}`}>{children}</p>;
+  // Muted unless a color is passed in (two text colors on one element would fight, and the default would win).
+  const colored = /\btext-(?!\[)/.test(className);
+  return <p className={`font-mono text-[11px] uppercase tracking-[0.18em] ${colored ? "" : "text-muted"} ${className}`}>{children}</p>;
 }
 
 /** 1-year price chart. Unlabeled during play; the reveal passes the company name. */
@@ -199,99 +337,203 @@ function VsMarket({ symbol, stock, market }: { symbol: string; stock: Bar[]; mar
   );
 }
 
-/** Every possible answer, A to Z, with no grouping (grouping by sector would give it away). Tapping a name fills the guess box; it doesn't guess. */
-function AnswerBank({ bank, taken, onPick }: { bank: [string, string][]; taken: Set<string>; onPick: (name: string) => void }) {
+/** "Automatic Data Processing" fits on a tile; "The Coca-Cola Company" becomes "Coca-Cola". */
+function shortName(name: string): string {
+  let n = name.replace(/^The /, "");
+  for (let i = 0; i < 2; i++)
+    n = n.replace(/,? (Inc\.?|Incorporated|Corporation|Corp\.|Company|Companies|Holdings|Group|plc|Ltd\.|& Co\.|Co\.)$/, "");
+  return n;
+}
+
+const BOARD_SLOTS = 25;
+
+/**
+ * The board: a 5x5 grid, one of the tiles the answer. Every company keeps its spot all game. Tap a tile to pick it.
+ * After a miss, the knocked-out tiles flip face down (like Guess Who) and the count pops, which is the payoff for every
+ * guess. Your wrong guesses stay red. Sectors with fewer than 25 companies start with a few tiles already down.
+ */
+function Board({ start, live, guessed, justOut, knocked, first, selected, onSelect, disabled, answer }: { start: BoardItem[]; live: Set<string>; guessed: Set<string>; justOut: Set<string>; knocked: number; first: boolean; selected: string | null; onSelect: (sym: string | null) => void; disabled: boolean; /** Results screen: the answer's tile, shown green. */ answer?: string }) {
+  const slots: (BoardItem | null)[] = [...start, ...Array<null>(Math.max(0, BOARD_SLOTS - start.length)).fill(null)];
+  // Down to the last two: they pulse, and it's a coin flip you earned.
+  const finalTwo = !answer && !first && live.size === 2;
+  // Knocked-out tiles flip one after another, in reading order.
+  const flipOrder = new Map(start.filter((c) => justOut.has(c.symbol)).map((c, i) => [c.symbol, i]));
   return (
-    <div className="mt-2 rounded-xl border border-line">
-      <p className="border-b border-line px-3 py-2 text-xs text-muted">
-        Every answer is one of these {bank.length} companies. Tap one to put it in the guess box.
-      </p>
-      <div className="flex max-h-72 flex-wrap gap-1.5 overflow-y-auto p-3">
-        {bank.map(([sym, name]) => (
-          <button
-            key={sym}
-            onClick={() => onPick(name)}
-            disabled={taken.has(sym)}
-            className="rounded-full border border-line px-2.5 py-1 text-xs active:bg-line/60 disabled:line-through disabled:opacity-40"
-          >
-            {name}
-          </button>
-        ))}
+    <section className="mt-4">
+      <div className="flex items-baseline justify-between">
+        <Kicker className={finalTwo ? "font-bold text-accent" : ""}>
+          {answer ? "Your board" : first ? `It's one of these ${live.size}` : finalTwo ? "Final two" : `Still in play · ${live.size}`}
+        </Kicker>
+        {knocked > 0 && (
+          <span key={live.size} className="knock-pop font-mono text-sm font-bold text-down">
+            −{knocked}
+          </span>
+        )}
       </div>
-    </div>
+      <div className="mt-2 grid grid-cols-5 gap-1.5">
+        {slots.map((c, i) => {
+          if (!c) return <div key={`empty-${i}`} className="aspect-square rounded-xl bg-line/40" aria-hidden="true" />;
+          const isLive = live.has(c.symbol), wrong = guessed.has(c.symbol), on = selected === c.symbol;
+          const isAnswer = answer === c.symbol;
+          const look = isAnswer
+            ? "border-up bg-up text-white shadow-md"
+            : wrong
+            ? "border-down/40 bg-down/15 text-down"
+            : !isLive
+              ? "border-transparent bg-line/50 text-muted opacity-40"
+              : on
+                ? "border-accent bg-accent text-accent-fg shadow-md"
+                : "border-line bg-card active:bg-line/60";
+          return (
+            <button
+              key={c.symbol}
+              onClick={() => onSelect(on ? null : c.symbol)}
+              disabled={disabled || !isLive || !!answer}
+              aria-pressed={on}
+              aria-label={`${c.name}${isLive ? "" : ", ruled out"}`}
+              className={`relative flex aspect-square flex-col items-center justify-center rounded-xl border px-0.5 text-center transition-colors disabled:cursor-default ${look} ${flipOrder.has(c.symbol) ? "tile-down" : ""} ${finalTwo && isLive && !on ? "final-pulse" : ""}`}
+              style={flipOrder.has(c.symbol) ? { animationDelay: `${flipOrder.get(c.symbol)! * 45}ms` } : undefined}
+            >
+              <span className={`font-mono text-[13px] font-bold leading-none sm:text-sm ${!isLive && !wrong && !isAnswer ? "line-through" : ""}`}>
+                {c.symbol}
+              </span>
+              {/* Skip the name when it's just the ticker again ("APA", "EQT"). */}
+              {norm(shortName(c.name)) !== c.symbol.toLowerCase() && (
+                <span className={`mt-1 line-clamp-2 text-[9px] leading-[1.15] sm:text-[10px] ${on || isAnswer ? "opacity-90" : "opacity-70"}`}>
+                  {shortName(c.name)}
+                </span>
+              )}
+              {wrong && <span className="absolute right-1 top-0.5 text-[10px] font-bold">✗</span>}
+              {isAnswer && <span className="absolute right-1 top-0.5 text-[10px] font-bold">✓</span>}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
-function Guesser({ companies, taken, disabled, onGuess, q, setQ, input }: { companies: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void; q: string; setQ: (q: string) => void; input: React.RefObject<HTMLInputElement | null> }) {
+/** Lowercase, accents and punctuation stripped: "The Estée Lauder Companies" -> "the estee lauder companies". */
+const norm = (x: string) =>
+  x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+
+/** What people actually call some companies, when it isn't in the official name. */
+const ALIASES: Record<string, string> = {
+  google: "GOOGL",
+  youtube: "GOOGL",
+  facebook: "META",
+  instagram: "META",
+  whatsapp: "META",
+  coke: "KO",
+  chase: "JPM",
+  "jp morgan": "JPM",
+  amex: "AXP",
+  "bank of america": "BAC",
+  bofa: "BAC",
+  "olive garden": "DRI",
+  ticketmaster: "LYV",
+};
+
+function Guesser({ companies, taken, disabled, onGuess, q, setQ, input, ruledOut }: { companies: [string, string][]; taken: Set<string>; disabled: boolean; onGuess: (s: string) => void; q: string; setQ: (q: string) => void; input: React.RefObject<HTMLInputElement | null>; ruledOut: (sym: string) => boolean }) {
+  // A company that isn't on the board gets one "are you sure?" first, since the answer is always on the board.
+  const [warned, setWarned] = useState<string | null>(null);
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
+    const qn = norm(s), qWords = qn.split(" "), qFlat = qn.replace(/ /g, "");
+    const alias = ALIASES[qn];
     const scored = companies
       .filter(([sym]) => !taken.has(sym))
       .map(([sym, name]) => {
-        const n = name.toLowerCase();
-        const score = sym.toLowerCase() === s || n === s ? 0 : n.startsWith(s) ? 1 : sym.toLowerCase().startsWith(s) ? 2 : n.includes(s) ? 3 : -1;
+        const n = name.toLowerCase(), nn = norm(name).replace(/^the /, ""), words = nn.split(" ");
+        // Forgiving about punctuation and word order, so "eli lilly" finds "Lilly (Eli)" and "coca cola" finds "Coca-Cola".
+        const loose = nn.replace(/ /g, "").includes(qFlat) || qWords.every((w) => words.some((x) => x.startsWith(w)));
+        const score =
+          sym.toLowerCase() === s || n === s || nn === qn || alias === sym ? 0
+          : nn.startsWith(qn) ? 1
+          : sym.toLowerCase().startsWith(s) ? 2
+          : loose ? 3
+          : -1;
         return { sym, name, score };
       })
       .filter((m) => m.score >= 0);
     return scored.sort((a, b) => a.score - b.score).slice(0, 8);
   }, [q, companies, taken]);
 
-  // Picking a suggestion only fills the box. Nothing is guessed until you press Guess.
-  const chosen = matches.find((m) => m.score === 0);
-  const filled = !!chosen && q.trim().toLowerCase() === chosen.name.toLowerCase();
+  // Picking a suggestion only fills the box. Nothing is guessed until you press Guess, which takes an exact match,
+  // or else the top suggestion for what you've typed (so "nike" + Guess just works).
+  const exact = matches.find((m) => m.score === 0);
+  const chosen = exact ?? (q.trim().length >= 2 ? matches[0] : undefined);
+  const filled = !!exact && q.trim().toLowerCase() === exact.name.toLowerCase();
+  const warning = chosen && warned === chosen.sym ? chosen : null;
 
   function fill(name: string) {
     setQ(name);
     input.current?.focus({ preventScroll: true });
   }
 
-  function submit() {
+  function submit(confirmed = false) {
     if (!chosen) return;
+    if (!confirmed && warned !== chosen.sym && ruledOut(chosen.sym)) {
+      setWarned(chosen.sym);
+      setQ(chosen.name); // spell out which company, and close the suggestions so they don't cover the warning
+      return;
+    }
+    setWarned(null);
     setQ("");
     onGuess(chosen.sym);
     input.current?.focus({ preventScroll: true });
   }
 
   return (
-    <div className="relative flex gap-2">
-      <div className="min-w-0 flex-1">
-        <input
-          ref={input}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && matches[0] && !filled && fill(matches[0].name)}
-          disabled={disabled}
-          type="search"
-          inputMode="search"
-          name="tickr-guess"
-          enterKeyHint="go"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="Stock name or ticker"
-          className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
-        />
-        {matches.length > 0 && !filled && (
-          <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-card shadow-lg">
-            {matches.map((m) => (
-              <li key={m.sym}>
-                <button onClick={() => fill(m.name)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
-                  <span className="truncate">{m.name}</span>
-                  <span className="font-mono text-xs text-muted">{m.sym}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+    <div>
+      <div className="relative flex gap-2">
+        <div className="min-w-0 flex-1">
+          <input
+            ref={input}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && matches[0] && !filled && fill(matches[0].name)}
+            disabled={disabled}
+            type="search"
+            inputMode="search"
+            name="tickr-guess"
+            enterKeyHint="go"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="Stock name or ticker"
+            className="w-full rounded-xl border border-line bg-bg px-4 py-3 text-base outline-none focus:border-accent disabled:opacity-50"
+          />
+          {matches.length > 0 && !filled && (
+            <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-xl border border-line bg-card shadow-lg">
+              {matches.map((m) => (
+                <li key={m.sym}>
+                  <button onClick={() => fill(m.name)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left active:bg-line/60">
+                    <span className="truncate">{m.name}</span>
+                    <span className="font-mono text-xs text-muted">{m.sym}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <button
+          onClick={() => submit()}
+          disabled={disabled || !chosen}
+          className="shrink-0 rounded-xl border border-accent bg-accent px-5 font-semibold text-accent-fg active:scale-[0.98] disabled:border-line disabled:bg-bg disabled:text-muted"
+        >
+          Guess
+        </button>
       </div>
-      <button
-        onClick={submit}
-        disabled={disabled || !chosen}
-        className="shrink-0 rounded-xl border border-accent bg-accent px-5 font-semibold text-accent-fg active:scale-[0.98] disabled:border-line disabled:bg-bg disabled:text-muted"
-      >
-        Guess
-      </button>
+      {warning && (
+        <div className="fade-in mt-2 flex items-center justify-between gap-3 rounded-xl bg-amber-400/15 px-3 py-2 text-sm">
+          <span className="leading-snug">{warning.name.replace(/\.$/, "")} isn&apos;t on the board, and the answer always is.</span>
+          <button onClick={() => submit(true)} className="shrink-0 font-semibold text-accent active:opacity-70">
+            Guess anyway
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -429,7 +671,7 @@ function StatsCard({ s, mine, max }: { s: Stats; mine: number; max: number }) {
   );
 }
 
-export function Mystery({ companies, bank }: { companies: [string, string][]; bank: [string, string][] }) {
+export function Mystery({ companies }: { companies: [string, string][] }) {
   const [me, setMe] = useState<Identity | null>(null);
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [guesses, setGuesses] = useState<string[]>([]);
@@ -439,27 +681,28 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  // The sector hint is optional: hidden at the start of every visit until you turn it on.
-  const [showSector, setShowSector] = useState(false);
-  // Hints (one per wrong guess) are on unless you turn them off. Also remembered per device.
-  const [showHints, setShowHints] = useState(true);
-  const [bankOpen, setBankOpen] = useState(false);
   const [q, setQ] = useState("");
+  // The tile picked on the board, the tiles your last miss flipped down (they animate), and how many.
+  const [selected, setSelected] = useState<string | null>(null);
+  const [justOut, setJustOut] = useState<Set<string>>(new Set());
+  const [knocked, setKnocked] = useState(0);
+  // Typing a company is a fallback, tucked behind a link: the board is how you play.
+  const [typing, setTyping] = useState(false);
+  // The guess you just made (its cards flip in), and whether to throw confetti for a solve.
+  const [fresh, setFresh] = useState<string | null>(null);
+  // "win" for a solve, "ace" for a first-try solve, which gets the big celebration.
+  const [celebrate, setCelebrate] = useState<null | "win" | "ace">(null);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const id = loadIdentity();
     setMe(id);
-    try {
-      setShowHints(localStorage.getItem(SHOW_HINTS) !== "0");
-    } catch {
-      // Storage blocked: hints stay on.
-    }
     (async () => {
       try {
         const day = new URLSearchParams(location.search).get("day"); // local testing only; ignored in production
         const p = await api<Puzzle>(`/api/mystery${day ? `?day=${encodeURIComponent(day)}` : ""}`, { me: id });
         setPuzzle(p);
+        track("open", p.date, id);
         const g = p.finishedGuesses ?? loadGuesses(p.date);
         if (g.length && id) {
           setGuesses(g);
@@ -491,10 +734,29 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     try {
       const id = await ensureIdentity();
       const r = await api<Result>("/api/mystery/guess", { method: "POST", body: { date: puzzle.date, guesses: next }, me: id });
+      // Tiles this miss knocks out flip face down; the count of them pops next to the board.
+      const before = result?.board ?? puzzle.board;
+      const kept = new Set((r.board ?? []).map((b) => b.symbol));
+      const gone = r.done ? [] : before.filter((b) => !kept.has(b.symbol)).map((b) => b.symbol);
+      setJustOut(new Set(gone));
+      setKnocked(gone.length);
+      setSelected(null);
       setGuesses(next);
       storeGuesses(puzzle.date, next);
       setResult(r);
-      if (r.done) window.scrollTo({ top: 0 });
+      setFresh(symbol);
+      if (next.length === 1) track("start", puzzle.date, id);
+      if (r.done) {
+        track("finish", puzzle.date, id);
+        window.scrollTo({ top: 0 });
+      }
+      if (r.solved) {
+        const ace = next.length === 1;
+        setCelebrate(ace ? "ace" : "win");
+        setTimeout(() => setCelebrate(null), ace ? 4500 : 3500);
+        // A little buzz on phones that allow it (Android; iPhones ignore this).
+        navigator.vibrate?.(ace ? [40, 60, 40, 60, 220] : 60);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -505,22 +767,10 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   async function share() {
     if (!puzzle || !result) return;
     const score = result.solved ? `${result.guesses.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`;
-    const r = await shareText(`Tickr Guesser #${puzzle.number} · ${score}\n${grid(result.guesses)}`, location.origin);
+    const first = aceLine(puzzle.date);
+    const ace = result.solved && result.guesses.length === 1 ? ` ${first.emoji} ${first.title}` : "";
+    const r = await shareText(`Tickr Guesser #${puzzle.number} · ${score}${ace}\n${grid(result.guesses)}`, location.origin);
     if (r === "copied") flash("Copied. Paste it in the group chat.");
-  }
-
-  function toggleSector() {
-    setShowSector(!showSector);
-  }
-
-  function toggleHints() {
-    const next = !showHints;
-    setShowHints(next);
-    try {
-      localStorage.setItem(SHOW_HINTS, next ? "1" : "0");
-    } catch {
-      // Storage blocked: the toggle still works for this visit.
-    }
   }
 
   function flash(msg: string) {
@@ -539,9 +789,12 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
   const tried = result?.guesses ?? [];
   const done = !!result?.done;
   const left = puzzle.maxGuesses - tried.length;
+  const board = result?.board ?? puzzle.board;
+  const onBoard = new Set(board.map((b) => b.symbol));
+  const pick = board.find((b) => b.symbol === selected) ?? null;
   const nextIn = clock(msToNextPuzzle(now));
   const toast_ = toast && (
-    <div className="fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-fg px-4 py-2 text-center text-sm text-bg shadow-lg">
+    <div className="fixed inset-x-0 bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5rem))] z-20 mx-auto w-fit max-w-[calc(100%-2rem)] rounded-full bg-fg px-4 py-2 text-center text-sm text-bg shadow-lg">
       {toast}
     </div>
   );
@@ -560,10 +813,16 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
           <p className="mt-2 font-mono text-sm text-muted">
             #{puzzle.number} · {shortDate(puzzle.date)}
           </p>
+          {puzzle.streak > 0 && (
+            <div className="mt-6 rounded-2xl border border-line bg-card px-5 py-3">
+              <div className="text-2xl font-bold">🔥 {puzzle.streak}-day streak</div>
+              <p className="mt-0.5 text-sm text-muted">Solve today&apos;s to make it {puzzle.streak + 1}</p>
+            </div>
+          )}
           <p className="mt-6 max-w-xs text-lg leading-snug">Guess the mystery stock from its chart.</p>
           <ul className="mt-4 space-y-1 font-mono text-sm text-muted">
             <li>{puzzle.maxGuesses} guesses</li>
-            <li>{bank.length} household names</li>
+            <li>any company in the S&amp;P 500</li>
             <li>a new stock every day</li>
           </ul>
           <button
@@ -575,7 +834,6 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
           >
             {tried.length ? "Keep playing" : "Play"}
           </button>
-          {puzzle.streak > 0 && <p className="mt-4 font-mono text-sm text-muted">🔥 {puzzle.streak} day streak</p>}
         </div>
       </Shell>
     );
@@ -586,17 +844,44 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     return (
       <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
         <Card className="text-center">
-          <Kicker>{result.solved ? "You got it" : "Not today"}</Kicker>
+          <Kicker className={result.solved && tried.length === 1 ? "font-bold text-amber-500" : ""}>
+            {result.solved ? (tried.length === 1 ? `${aceLine(puzzle.date).emoji} ${aceLine(puzzle.date).title}` : "You got it") : "Not today"}
+          </Kicker>
           <div className="mt-1 text-5xl font-bold tabular">
             {result.solved ? `${tried.length}/${puzzle.maxGuesses}` : `X/${puzzle.maxGuesses}`}
           </div>
           <div className="mt-2 whitespace-pre font-mono text-lg leading-tight tracking-wider">{grid(tried)}</div>
+          <Punchline r={result.reveal} />
           <button onClick={share} className="mt-5 w-full rounded-full bg-accent py-3.5 font-semibold text-accent-fg active:scale-[0.99]">
             Share result
           </button>
-          <p className="mt-3 font-mono text-xs text-muted">
+          {result.stats && (
+            <p className="mt-4 font-semibold">
+              {result.solved && result.stats.streak > 0
+                ? `🔥 ${result.stats.streak}-day streak. Come back tomorrow to make it ${result.stats.streak + 1}.`
+                : "Come back tomorrow and start a streak."}
+            </p>
+          )}
+          <p className="mt-1 font-mono text-xs text-muted">
             Next stock in <span className="text-fg tabular">{nextIn}</span>
           </p>
+        </Card>
+        {celebrate && <Confetti big={celebrate === "ace"} />}
+        {celebrate === "ace" && <FirstTry line={aceLine(puzzle.date)} />}
+        {/* Your board in its final state: the answer in green, your misses in red. A picture of how you got there. */}
+        <Card>
+          <Board
+            start={puzzle.board}
+            live={new Set()}
+            guessed={new Set(tried.filter((g) => !g.correct).map((g) => g.symbol))}
+            justOut={new Set()}
+            knocked={0}
+            first={false}
+            selected={null}
+            onSelect={() => {}}
+            disabled
+            answer={result.reveal.symbol}
+          />
         </Card>
         <RevealCard r={result.reveal} bars={puzzle.chart} />
         {result.stats && <StatsCard s={result.stats} mine={result.solved ? tried.length - 1 : puzzle.maxGuesses} max={puzzle.maxGuesses} />}
@@ -605,7 +890,9 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
     );
   }
 
-  // Playing: chart, the guess box, the optional sector hint, then your guesses (newest first).
+  // Playing: chart and sector, the latest hint, the board (tap a company, then the Guess button at the bottom),
+  // then your guesses with their cards, newest first.
+  const latest = result?.hints.length ? result.hints.length - 1 : -1;
   return (
     <Shell header={`#${puzzle.number} · ${shortDate(puzzle.date)}`}>
       <Card>
@@ -617,93 +904,98 @@ export function Mystery({ companies, bank }: { companies: [string, string][]; ba
             ))}
           </div>
         </div>
-        {/* The guess box sits right under the chart so it's already above the phone keyboard:
-            Safari then has no reason to scroll the chart away while you type. */}
+        <p className="mt-1 text-sm leading-snug">
+          <span className="font-semibold text-accent">{puzzle.sector}</span>
+          {SECTOR_MEANING[puzzle.sector] && <span className="text-muted">: {SECTOR_MEANING[puzzle.sector]}</span>}
+        </p>
         <div className="mt-3">
           <Chart bars={puzzle.chart} />
         </div>
-        <div className="mt-4">
-          <Guesser companies={companies} taken={new Set(guesses)} disabled={busy} onGuess={guess} q={q} setQ={setQ} input={input} />
-          {error && <p className="mt-2 text-sm text-down">{error}</p>}
-        </div>
-        <button
-          onClick={() => setBankOpen(!bankOpen)}
-          aria-expanded={bankOpen}
-          className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border py-2.5 text-sm font-semibold active:bg-line/60 ${bankOpen ? "border-accent text-accent" : "border-line"}`}
-        >
-          {bankOpen ? "Hide the list" : `Browse all ${bank.length} stocks`}
-          <svg viewBox="0 0 12 12" className={`h-3 w-3 transition-transform ${bankOpen ? "rotate-180" : ""}`} aria-hidden="true">
-            <path d="M2 4.5 6 8.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+
+        {/* Hints for everyone: the newest one big, the earlier ones small underneath. One more after every miss. */}
+        {latest >= 0 && result && (
+          <div key={latest} className="fade-in mt-4 rounded-2xl bg-accent/10 px-4 py-3">
+            <Kicker>Hint {latest + 1}</Kicker>
+            <p className="mt-1 text-base font-medium leading-snug">{result.hints[latest]}</p>
+            {latest > 0 && (
+              <ul className="mt-2 space-y-1 border-t border-accent/20 pt-2 text-sm leading-snug text-muted">
+                {result.hints
+                  .slice(0, latest)
+                  .map((h, i) => ({ h, i }))
+                  .reverse()
+                  .map(({ h, i }) => (
+                    <li key={i}>
+                      <span className="mr-1.5 font-mono text-[10px] uppercase tracking-wider">Hint {i + 1}</span>
+                      {h}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <Board
+          start={puzzle.board}
+          live={onBoard}
+          guessed={new Set(tried.filter((g) => !g.correct).map((g) => g.symbol))}
+          justOut={justOut}
+          knocked={knocked}
+          first={tried.length === 0}
+          selected={selected}
+          onSelect={setSelected}
+          disabled={busy}
+        />
+        {error && <p className="mt-2 text-sm text-down">{error}</p>}
+
+        <button onClick={() => setTyping(!typing)} className="mt-3 text-xs text-muted underline-offset-2 active:text-fg">
+          {typing ? "Hide" : "Have a different company in mind? Type it"}
         </button>
-        {bankOpen && (
-          <AnswerBank
-            bank={bank}
-            taken={new Set(guesses)}
-            onPick={(name) => {
-              setQ(name);
-              input.current?.focus({ preventScroll: true });
-            }}
-          />
+        {typing && (
+          <div className="mt-2">
+            <Guesser
+              companies={companies}
+              taken={new Set(guesses)}
+              disabled={busy}
+              onGuess={guess}
+              q={q}
+              setQ={setQ}
+              input={input}
+              ruledOut={(sym) => !onBoard.has(sym)}
+            />
+          </div>
         )}
-        <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-          {puzzle.hasHints ? (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={showHints} onChange={toggleHints} className="h-4 w-4 accent-accent" />
-              Show hints
-            </label>
-          ) : (
-            <span />
-          )}
-          <button onClick={toggleSector} aria-pressed={showSector} className="text-muted active:text-fg">
-            {showSector ? "Hide sector" : "Show sector"}
-          </button>
-        </div>
-        {showSector && (
-          <p className="mt-2 text-sm leading-snug">
-            <span className="font-semibold">{puzzle.sector}</span>
-            {SECTOR_MEANING[puzzle.sector] && <span className="text-muted">: {SECTOR_MEANING[puzzle.sector]}.</span>}
-          </p>
-        )}
-        {showHints && result?.hints && result.hints.length > 0 && (
-          <ul className="mt-2 space-y-1.5">
-            {/* Newest first and highlighted; earlier hints stay below, dimmed. */}
-            {result.hints
-              .map((h, i) => ({ h, i }))
-              .reverse()
-              .map(({ h, i }, k) => (
-                <li
-                  key={i}
-                  className={`rounded-xl px-3 py-2 text-sm leading-snug ${k === 0 ? "bg-accent/15 text-fg" : "bg-line/40 text-muted"}`}
-                >
-                  <span className="mr-1.5 font-mono text-[11px] uppercase tracking-wider opacity-70">Hint {i + 1}</span>
-                  {h}
-                </li>
-              ))}
-          </ul>
-        )}
+
         {tried.length > 0 && (
-          <>
-            <div className="mt-4 grid grid-cols-4 gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
+          <section className="mt-5">
+            <Kicker>Your guesses</Kicker>
+            <div className="mt-2 grid grid-cols-4 gap-1.5 text-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted">
               {CARD_ORDER.map((k) => (
                 <span key={k}>{CARD_LABEL[k]}</span>
               ))}
             </div>
             <ul className="mt-2 space-y-3">
               {[...tried].reverse().map((g) => (
-                <GuessRow key={g.symbol} g={g} />
+                <GuessRow key={g.symbol} g={g} fresh={g.symbol === fresh} />
               ))}
             </ul>
-            <div className="mt-3 space-y-1 text-[11px] leading-snug text-muted">
-              <p>🟩 match · 🟨 close · ⬜ off · arrows point to the answer</p>
-              <p>
-                🟨 means same sector, one size or one decade off, or same US region.{" "}
-                <span className="font-mono">{BRACKETS.map((b) => `${b.label} ${b.range.replace("under ", "<")}`).join(" · ")}</span>
-              </p>
-            </div>
-          </>
+            <p className="mt-3 text-[11px] leading-snug text-muted">🟩 match · 🟨 close · ⬜ off · arrows point to the answer</p>
+          </section>
         )}
       </Card>
+
+      {/* Room for the Guess button, which stays pinned to the bottom of the screen. */}
+      <div className="h-20" />
+      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-bg/90 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
+        <div className="mx-auto max-w-lg px-4">
+          <button
+            onClick={() => pick && guess(pick.symbol)}
+            disabled={!pick || busy}
+            className="w-full truncate rounded-full bg-accent py-3.5 text-lg font-semibold text-accent-fg active:scale-[0.99] disabled:bg-line disabled:text-muted"
+          >
+            {busy ? "Checking..." : pick ? `Guess ${pick.name}` : "Tap a company to guess"}
+          </button>
+        </div>
+      </div>
       {toast_}
     </Shell>
   );

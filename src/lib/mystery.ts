@@ -3,7 +3,8 @@ import hintsJson from "@/data/hints.json";
 import { db, must } from "./db";
 import { GameError } from "./game";
 import { BRACKETS } from "./brackets";
-import { randomInt } from "node:crypto";
+import { cards, bracketOf, fitsClues, type Facts, type GuessCards } from "./cards";
+import { createHash, randomInt } from "node:crypto";
 import { addDays, etDate } from "./time";
 
 // Tickr Guesser: guess the day's S&P 500 company from its 1-year chart, in 5 tries.
@@ -46,6 +47,14 @@ EBAY WM RL TPR CHTR`
 const HINTS = hintsJson as Record<string, string[]>;
 const HINTED_POOL = ANSWER_POOL.filter((sym) => HINTS[sym]?.length === 4);
 
+/**
+ * Hard Friday: once a week the answer is a lesser-known S&P 500 company instead of a household name. The pool is
+ * every company with written hints that isn't in the household-name list.
+ */
+const HARD_POOL = Object.keys(HINTS).filter((s) => BY_SYMBOL.has(s) && !ANSWER_POOL.includes(s) && HINTS[s].length === 4);
+export const isHardDay = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay() === 5 && HARD_POOL.length > 0;
+const poolFor = (date: string) => (isHardDay(date) ? HARD_POOL : HINTED_POOL.length ? HINTED_POOL : ANSWER_POOL);
+
 /** Hints unlocked so far: one per wrong guess, up to four. Never sends hints that aren't unlocked yet. */
 export const hintsFor = (symbol: string, wrong: number) => (HINTS[symbol] ?? []).slice(0, Math.min(4, Math.max(0, wrong)));
 export const hasHints = (symbol: string) => !!HINTS[symbol]?.length;
@@ -67,7 +76,7 @@ const NO_REPEAT_DAYS = 120;
 export async function answerFor(date: string, practice = false): Promise<Company> {
   if (practice) {
     const h = [...`practice:${date}`].reduce((x, ch) => (Math.imul(x, 31) + ch.charCodeAt(0)) >>> 0, 7);
-    const pool = HINTED_POOL.length ? HINTED_POOL : ANSWER_POOL;
+    const pool = poolFor(date);
     return BY_SYMBOL.get(pool[h % pool.length])!;
   }
   const saved = await savedAnswers([date]);
@@ -82,7 +91,7 @@ export async function answerFor(date: string, practice = false): Promise<Company
     .then(must)) as { symbol: string }[];
   const used = new Set(recent.map((r) => r.symbol));
   // Only companies with written hints can be picked (falls back to the full pool if none exist).
-  const pool = HINTED_POOL.length ? HINTED_POOL : ANSWER_POOL;
+  const pool = poolFor(date);
   const fresh = pool.filter((sym) => !used.has(sym));
   const choices = fresh.length ? fresh : pool;
   const symbol = choices[randomInt(choices.length)];
@@ -110,6 +119,21 @@ async function savedAnswers(dates: string[]): Promise<Record<string, Company>> {
 }
 
 export const today = () => etDate(new Date());
+
+const EVENT_KINDS = new Set(["open", "start", "finish"]);
+
+/**
+ * Record one funnel step for a device (see migration 0006). Only today's real puzzle counts, never practice days.
+ * Best effort: a failure here (including the table not existing yet) must never break the game.
+ */
+export async function logEvent(date: string, device: unknown, kind: unknown, playerId: string | null) {
+  if (date !== today() || typeof kind !== "string" || !EVENT_KINDS.has(kind)) return;
+  if (typeof device !== "string" || !/^[0-9a-f-]{36}$/.test(device)) return;
+  const { error } = await db()
+    .from("mystery_events")
+    .upsert({ puzzle_date: date, device, kind, player_id: playerId }, { onConflict: "puzzle_date,device,kind", ignoreDuplicates: true });
+  if (error) console.warn(`mystery_events: ${error.message}`);
+}
 
 /** Local testing only: play another day's puzzle with ?day=YYYY-MM-DD. Never allowed in production. */
 export function practiceDate(raw: unknown): string | null {
@@ -301,52 +325,74 @@ export function parseGuesses(raw: unknown): Company[] {
 }
 
 // ---------------------------------------------------------------------------
-// Guess cards: industry, size, founded, HQ. Green only when it truly matches.
+// Guess cards (the comparison itself lives in cards.ts, shared with the browser)
 // ---------------------------------------------------------------------------
-
-// Uses the stored market caps, so a company's bracket doesn't change from day to day.
-const bracketOf = (cap: number) => BRACKETS.findIndex((b) => cap >= b.min);
 
 /** Original founding year: Wikipedia lists e.g. "1983 (1877)" for companies re-formed later. */
 export const foundedYear = (c: Company) =>
   Math.min(...(c.foundedText.match(/\b(1[6-9]\d\d|20\d\d)\b/g) ?? [String(c.founded)]).map(Number));
 
-const REGIONS: Record<string, string> = Object.fromEntries(
-  Object.entries({
-    Northeast: "Connecticut Maine Massachusetts New_Hampshire New_Jersey New_York Pennsylvania Rhode_Island Vermont",
-    Midwest: "Illinois Indiana Iowa Kansas Michigan Minnesota Missouri Nebraska North_Dakota Ohio South_Dakota Wisconsin",
-    South:
-      "Alabama Arkansas D.C. Delaware Florida Georgia Kentucky Louisiana Maryland Mississippi North_Carolina Oklahoma South_Carolina Tennessee Texas Virginia West_Virginia",
-    West: "Alaska Arizona California Colorado Hawaii Idaho Montana Nevada New_Mexico Oregon Utah Washington Wyoming",
-  }).flatMap(([region, states]) => states.split(" ").map((st) => [st.replace(/_/g, " "), region])),
-);
-/** US region for a state; anywhere outside the US counts as one "International" region. */
-const regionOf = (state: string) => REGIONS[state] ?? "International";
+/** The public facts the cards compare, for every company. Sent to the browser for the "still fit" count. */
+export const toFacts = (c: Company): Facts => ({
+  symbol: c.symbol,
+  name: c.name,
+  sector: c.sector,
+  industry: c.industry,
+  cap: c.cap,
+  founded: foundedYear(c),
+  state: c.state,
+});
 
-/** match = green, close = yellow, miss = grey. dir: which way the answer is (size and founded only). */
-export type Mark = "match" | "close" | "miss";
-export type Card = { value: string; mark: Mark; dir?: "up" | "down" | null };
-export type GuessCards = { industry: Card; size: Card; founded: Card; hq: Card };
-
-/** Same/one-off/further on an ordered scale, with an arrow toward the answer. */
-function scale(guess: number, answer: number, value: string): Card {
-  const gap = Math.abs(guess - answer);
-  return { value, mark: gap === 0 ? "match" : gap === 1 ? "close" : "miss", dir: gap === 0 ? null : answer > guess ? "up" : "down" };
-}
-
-export function cards(g: Company, a: Company): GuessCards {
-  const gb = bracketOf(g.cap), ab = bracketOf(a.cap);
-  const gd = Math.floor(foundedYear(g) / 10), ad = Math.floor(foundedYear(a) / 10);
-  return {
-    industry: { value: g.industry, mark: g.industry === a.industry ? "match" : g.sector === a.sector ? "close" : "miss" },
-    // Brackets are listed biggest first, so a lower index means bigger: flip for the arrow.
-    size: scale(-gb, -ab, BRACKETS[gb].label),
-    founded: scale(gd, ad, `${gd * 10}s`),
-    hq: { value: g.state, mark: g.state === a.state ? "match" : regionOf(g.state) === regionOf(a.state) ? "close" : "miss" },
-  };
-}
-
+export type { Card, GuessCards, Mark } from "./cards";
 export type GuessResult = { symbol: string; name: string; correct: boolean; cards: GuessCards };
+
+// ---------------------------------------------------------------------------
+// The board: the companies still in play. It always holds the answer and shrinks on a fixed schedule as you miss.
+// ---------------------------------------------------------------------------
+
+/** Board size after 0, 1, 2, 3 and 4 misses. Paced on purpose, so every day is about as hard as the last. */
+const BOARD_SIZES = [25, 12, 6, 3, 2];
+const HOUSEHOLD = new Set(ANSWER_POOL);
+
+export type BoardItem = { symbol: string; name: string };
+
+/**
+ * The board after the given guesses. It starts as the answer plus same-sector decoys about as well known as the
+ * answer (household names on a normal day, closest in size after that), so the answer doesn't stand out. Each miss
+ * cuts it down from the board before, knocking out the names your clues rule out first, so it never reshuffles and
+ * the answer can't be spotted as the name that keeps showing up. Fixed for a given day, so a refresh shows the same
+ * board. Sorted by name so the answer's position says nothing.
+ */
+export function boardFor(date: string, guesses: Company[], answer: Company): BoardItem[] {
+  const tiebreak = (sym: string) => createHash("sha256").update(`${date}:${sym}`).digest().readUInt32BE(0);
+  const famous = HOUSEHOLD.has(answer.symbol);
+  const unlike = (c: Company) => Number(HOUSEHOLD.has(c.symbol) !== famous);
+  const closest = (x: Company, y: Company) => unlike(x) - unlike(y) || Math.abs(x.rank - answer.rank) - Math.abs(y.rank - answer.rank);
+  let board = COMPANIES.filter((c) => c.sector === answer.sector && c.symbol !== answer.symbol)
+    .sort(closest)
+    .slice(0, BOARD_SIZES[0] - 1);
+  // Small sectors (Communication Services, Energy) can't fill 25 tiles: top up with similar companies from other
+  // sectors. The sector clue rules them out, so they're the first to go after a miss.
+  if (board.length < BOARD_SIZES[0] - 1) {
+    const filler = COMPANIES.filter((c) => c.sector !== answer.sector).sort(closest);
+    board = [...board, ...filler.slice(0, BOARD_SIZES[0] - 1 - board.length)];
+  }
+
+  const a = toFacts(answer);
+  const misses = guesses.filter((g) => g.symbol !== answer.symbol);
+  for (let k = 1; k <= Math.min(misses.length, BOARD_SIZES.length - 1); k++) {
+    const sofar = misses.slice(0, k);
+    const seen = sofar.map((g) => ({ guess: toFacts(g), cards: cards(toFacts(g), a) }));
+    const guessed = new Set(sofar.map((g) => g.symbol));
+    // Knock out the worst fits first: off-sector fillers, then same-sector names the cards rule out.
+    const ruledOut = (c: Company) => (fitsClues(toFacts(c), seen) ? 0 : c.sector === answer.sector ? 1 : 2);
+    board = board
+      .filter((c) => !guessed.has(c.symbol))
+      .sort((x, y) => ruledOut(x) - ruledOut(y) || tiebreak(x.symbol) - tiebreak(y.symbol))
+      .slice(0, BOARD_SIZES[k] - 1);
+  }
+  return [answer, ...board].map((c) => ({ symbol: c.symbol, name: c.name })).sort((x, y) => x.name.localeCompare(y.name));
+}
 
 /** Check a list of guesses: right or wrong, plus the four cards. Once finished, records the play (first finish counts) and reveals. */
 export async function play(playerId: string, date: string, rawGuesses: unknown) {
@@ -360,13 +406,13 @@ export async function play(playerId: string, date: string, rawGuesses: unknown) 
     symbol: g.symbol,
     name: g.name,
     correct: g.symbol === answer.symbol,
-    cards: cards(g, answer),
+    cards: cards(toFacts(g), toFacts(answer)),
   }));
   const solved = solvedAt >= 0;
   const done = solved || guesses.length === MAX_GUESSES;
 
   const hints = hintsFor(answer.symbol, guesses.length - (solved ? 1 : 0));
-  if (!done) return { guesses: results, hints, done, solved, reveal: null, stats: null };
+  if (!done) return { guesses: results, hints, board: boardFor(date, guesses, answer), done, solved, reveal: null, stats: null };
 
   // First finish counts; a replay from another device keeps the original result. Practice games aren't saved.
   if (!practice) {
@@ -377,5 +423,5 @@ export async function play(playerId: string, date: string, rawGuesses: unknown) 
   }
 
   const [rev, st] = await Promise.all([reveal(answer, date), stats(playerId, date)]);
-  return { guesses: results, hints, done, solved, reveal: rev, stats: st };
+  return { guesses: results, hints, board: null, done, solved, reveal: rev, stats: st };
 }
