@@ -120,7 +120,7 @@ async function savedAnswers(dates: string[]): Promise<Record<string, Company>> {
 
 export const today = () => etDate(new Date());
 
-const EVENT_KINDS = new Set(["open", "start", "finish"]);
+const EVENT_KINDS = new Set(["open", "play", "start", "finish"]);
 
 /**
  * Record one funnel step for a device (see migration 0006). Only today's real puzzle counts, never practice days.

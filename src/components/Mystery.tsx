@@ -56,7 +56,7 @@ function deviceId(): string {
 }
 
 /** Fire-and-forget funnel event (open / start / finish). The server ignores practice days and repeats. */
-function track(kind: "open" | "start" | "finish", date: string, me: Identity | null) {
+function track(kind: "open" | "play" | "start" | "finish", date: string, me: Identity | null) {
   api("/api/mystery/event", { method: "POST", body: { date, device: deviceId(), kind }, me }).catch(() => {});
 }
 
@@ -828,6 +828,7 @@ export function Mystery({ companies }: { companies: [string, string][] }) {
           <button
             onClick={() => {
               setPlaying(true);
+              track("play", puzzle.date, me);
               window.scrollTo({ top: 0 });
             }}
             className="mt-8 w-full max-w-xs rounded-full bg-accent py-4 text-lg font-semibold text-accent-fg active:scale-[0.99]"
